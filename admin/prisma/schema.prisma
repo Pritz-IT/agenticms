@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  editor
+}
+
+enum ContentType {
+  text
+  richtext
+  image
+  link
+  page
+}
+
+enum BuildTarget {
+  staging
+  production
+}
+
+enum BuildStatus {
+  pending
+  building
+  success
+  failed
+}
+
+enum GlobalAssetMode {
+  shared
+  copyable
+}
+
+model Site {
+  id            String          @id @default(cuid())
+  key           String          @unique
+  name          String
+  domain        String
+  stagingDomain String          @map("staging_domain")
+  defaultLocale String          @map("default_locale")
+  siteUrl       String?         @map("site_url")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  locales       Locale[]
+  layouts       Layout[]
+  pages         Page[]
+  navigation    Navigation[]
+  stagingAccess StagingAccess[]
+  assets        Asset[]
+  builds        Build[]
+  submissions   Submission[]
+
+  @@map("sites")
+}
+
+model User {
+  id                    String               @id @default(cuid())
+  email                 String               @unique
+  passwordHash          String               @map("password_hash")
+  role                  Role                 @default(editor)
+  createdAt             DateTime             @default(now()) @map("created_at")
+  refreshTokens         RefreshToken[]
+  cliTokens             CliToken[]
+  approvedCliChallenges CliDeviceChallenge[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model CliDeviceChallenge {
+  id           String    @id @default(cuid())
+  label        String
+  codeHash     String    @map("code_hash")
+  deviceHash   String    @map("device_hash")
+  expiresAt    DateTime  @map("expires_at")
+  approvedAt   DateTime? @map("approved_at")
+  approvedById String?   @map("approved_by_id")
+  consumedAt   DateTime? @map("consumed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  approvedBy   User?     @relation(fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@map("cli_device_challenges")
+}
+
+model CliToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique @map("token_hash")
+  userId     String    @map("user_id")
+  label      String
+  scopes     String[]
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("cli_tokens")
+}
+
+model Locale {
+  id        String  @id @default(cuid())
+  siteId    String  @map("site_id")
+  code      String
+  label     String
+  isDefault Boolean @default(false) @map("is_default")
+  sortOrder Int     @default(0) @map("sort_order")
+  site      Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, code])
+  @@map("locales")
+}
+
+model Layout {
+  id                 String                @id @default(cuid())
+  siteId             String                @map("site_id")
+  globalTemplateId   String?               @map("global_template_id")
+  globalTemplateHash String?               @map("global_template_hash")
+  name               String
+  filePath           String                @map("file_path")
+  detectedKeys       Json                  @default("{}") @map("detected_keys")
+  registeredAt       DateTime              @default(now()) @map("registered_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  site               Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  globalTemplate     GlobalLayoutTemplate? @relation(fields: [globalTemplateId], references: [id], onDelete: SetNull)
+  pages              Page[]
+
+  @@unique([siteId, filePath])
+  @@map("layouts")
+}
+
+model GlobalLayoutTemplate {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  name         String
+  filePath     String   @unique @map("file_path")
+  detectedKeys Json     @default("{}") @map("detected_keys")
+  sourceHash   String   @map("source_hash")
+  registeredAt DateTime @default(now()) @map("registered_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  layouts      Layout[]
+
+  @@map("global_layout_templates")
+}
+
+model GlobalAsset {
+  id             String          @id @default(cuid())
+  key            String          @unique
+  mode           GlobalAssetMode
+  templateFolder String?         @map("template_folder")
+  filename       String
+  mimeType       String          @map("mime_type")
+  filePath       String          @unique @map("file_path")
+  sourceHash     String          @map("source_hash")
+  registeredAt   DateTime        @default(now()) @map("registered_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  copiedAssets   Asset[]
+
+  @@index([mode])
+  @@index([templateFolder])
+  @@map("global_assets")
+}
+
+model Page {
+  id          String       @id @default(cuid())
+  siteId      String       @map("site_id")
+  path        String
+  layoutId    String?      @map("layout_id")
+  sortOrder   Int          @default(0) @map("sort_order")
+  isPublished Boolean      @default(false) @map("is_published")
+  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  layout      Layout?      @relation(fields: [layoutId], references: [id], onDelete: SetNull)
+  contents    Content[]
+  navigations Navigation[]
+
+  @@unique([siteId, path])
+  @@map("pages")
+}
+
+model Content {
+  id     String      @id @default(cuid())
+  pageId String      @map("page_id")
+  key    String
+  locale String
+  value  String      @default("")
+  type   ContentType @default(text)
+  page   Page        @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, key, locale])
+  @@map("content")
+}
+
+model Navigation {
+  id           String       @id @default(cuid())
+  siteId       String       @map("site_id")
+  locale       String
+  label        String
+  targetPageId String?      @map("target_page_id")
+  parentId     String?      @map("parent_id")
+  sortOrder    Int          @default(0) @map("sort_order")
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  targetPage   Page?        @relation(fields: [targetPageId], references: [id], onDelete: SetNull)
+  parent       Navigation?  @relation("NavNesting", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Navigation[] @relation("NavNesting")
+
+  @@map("navigation")
+}
+
+model StagingAccess {
+  id           String    @id @default(cuid())
+  siteId       String    @map("site_id")
+  username     String
+  passwordHash String    @map("password_hash")
+  expiresAt    DateTime? @map("expires_at")
+  site         Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("staging_access")
+}
+
+model Build {
+  id           String      @id @default(cuid())
+  siteId       String      @map("site_id")
+  target       BuildTarget
+  status       BuildStatus @default(pending)
+  outputPath   String?     @map("output_path")
+  startedAt    DateTime    @default(now()) @map("started_at")
+  finishedAt   DateTime?   @map("finished_at")
+  errorLog     String?     @map("error_log")
+  // Flipped to true by cleanupOldBuilds when the on-disk versioned dir is
+  // pruned by retention. UI should disable rollback for these rows.
+  filesDeleted Boolean     @default(false) @map("files_deleted")
+  site         Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("builds")
+}
+
+model Asset {
+  id              String       @id @default(cuid())
+  siteId          String       @map("site_id")
+  globalAssetId   String?      @map("global_asset_id")
+  globalAssetHash String?      @map("global_asset_hash")
+  filename        String
+  mimeType        String       @map("mime_type")
+  filePath        String       @map("file_path")
+  uploadedAt      DateTime     @default(now()) @map("uploaded_at")
+  uploadedBy      String       @map("uploaded_by")
+  site            Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  globalAsset     GlobalAsset? @relation(fields: [globalAssetId], references: [id], onDelete: SetNull)
+
+  @@index([globalAssetId])
+  @@map("assets")
+}
+
+model Submission {
+  id           String   @id @default(cuid())
+  siteId       String   @map("site_id")
+  form         String
+  data         Json
+  score        Int?
+  email        String?
+  clientRef    String?  @map("client_ref")
+  wantsContact Boolean  @default(false) @map("wants_contact")
+  createdAt    DateTime @default(now()) @map("created_at")
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, form])
+  @@index([siteId, clientRef])
+  @@map("submissions")
+}

@@ -1,0 +1,126 @@
+---
+import { getConfig, getDefaultLocale } from "../lib/config";
+import { resolveContent } from "../lib/content";
+import type { Page, Navigation } from "../lib/site-config-types";
+
+export async function getStaticPaths() {
+  const siteConfig = getConfig();
+  const defaultLocale = getDefaultLocale();
+  const { pages, locales, navigation } = siteConfig;
+
+  const paths: Array<{
+    params: { slug: string | undefined };
+    props: {
+      page: Page;
+      locale: string;
+      content: Record<string, string>;
+      config: typeof siteConfig;
+      layoutFilePath: string | null;
+    };
+  }> = [];
+
+  for (const page of pages) {
+    for (const locale of locales) {
+      const isDefault = locale.code === defaultLocale;
+      const pagePath = page.path.replace(/^\//, "");
+      const isHomepage = pagePath === "" || pagePath === "/";
+
+      let slug: string | undefined;
+      if (isHomepage) {
+        slug = isDefault ? undefined : locale.code;
+      } else {
+        slug = isDefault ? pagePath : `${locale.code}/${pagePath}`;
+      }
+
+      const content = resolveContent(page, locale.code, defaultLocale);
+      const layoutFilePath = page.layout?.filePath ?? null;
+
+      paths.push({
+        params: { slug },
+        props: {
+          page,
+          locale: locale.code,
+          content,
+          config: siteConfig,
+          layoutFilePath,
+        },
+      });
+    }
+  }
+
+  return paths;
+}
+
+const { page, locale, content, config, layoutFilePath } = Astro.props;
+
+// Dynamic layout import
+const layoutModules = import.meta.glob("../layouts/**/*.tsx", { eager: true }) as Record<
+  string,
+  { default: React.ComponentType<Record<string, unknown>> }
+>;
+
+let LayoutComponent: React.ComponentType<Record<string, unknown>> | null = null;
+if (layoutFilePath) {
+  const fileName = layoutFilePath.split("/").pop();
+  const matchingEntry = Object.entries(layoutModules).find(([key]) =>
+    key.endsWith(`/${fileName}`)
+  );
+  if (matchingEntry) {
+    LayoutComponent = matchingEntry[1].default;
+  }
+}
+
+const metaTitle = (content["_meta.title"] as string | undefined) ?? config.settings?.name ?? "";
+const metaDescription = (content["_meta.description"] as string | undefined) ?? "";
+const favicon = content["_meta.favicon"] as string | undefined;
+
+const base = (config.settings?.siteUrl ?? "").replace(/\/+$/, "");
+const rawImg = (content["_meta.image"] as string | undefined) ?? "";
+const ogImage = rawImg ? (/^https?:\/\//i.test(rawImg) ? rawImg : base + rawImg) : "";
+const canonical = base + Astro.url.pathname;
+const siteName = config.settings?.name ?? "";
+
+const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale === locale);
+---
+
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{metaTitle}</title>
+    {metaDescription && <meta name="description" content={metaDescription} />}
+    {favicon && <link rel="shortcut icon" href={favicon} type="image/x-icon" />}
+    {base && <link rel="canonical" href={canonical} />}
+    <meta property="og:type" content="website" />
+    {siteName && <meta property="og:site_name" content={siteName} />}
+    {metaTitle && <meta property="og:title" content={metaTitle} />}
+    {metaDescription && <meta property="og:description" content={metaDescription} />}
+    {base && <meta property="og:url" content={canonical} />}
+    {metaTitle && <meta name="twitter:title" content={metaTitle} />}
+    {metaDescription && <meta name="twitter:description" content={metaDescription} />}
+    {ogImage ? (
+      <>
+        <meta property="og:image" content={ogImage} />
+        <meta name="twitter:image" content={ogImage} />
+        <meta name="twitter:card" content="summary_large_image" />
+      </>
+    ) : (
+      <meta name="twitter:card" content="summary" />
+    )}
+  </head>
+  <body>
+    {LayoutComponent ? (
+      <LayoutComponent
+        content={content}
+        navigation={filteredNavigation}
+        locale={locale}
+        locales={config.locales}
+        settings={config.settings}
+      />
+    ) : (
+      <div>
+        <p>Layout not found{layoutFilePath ? `: ${layoutFilePath}` : " (no layout assigned)"}</p>
+      </div>
+    )}
+  </body>
+</html>

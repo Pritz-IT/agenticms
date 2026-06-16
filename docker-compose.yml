@@ -1,0 +1,104 @@
+# AgentiCMS — EXAMPLE deployment topology.
+#
+# This file is a reference, not a turnkey production config. Before any
+# public/internet deployment, review SECURITY.md and the README deployment
+# notes.
+#
+# Secrets are intentionally mandatory (no insecure fallbacks): copy
+# .env.example to .env and fill in strong values. `docker compose` reads .env
+# automatically.
+#
+# Trust boundary: ONLY the `website` container (nginx) is published. `admin`
+# stays on the internal `agenticms` network and is reachable solely through
+# the nginx `/api/` reverse proxy. Publishing the admin port directly would
+# bypass the staging Basic Auth and make the per-IP submission/login rate
+# limits spoofable.
+
+services:
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    # No `ports:` on purpose — admin must not be directly reachable. For local
+    # debugging only you may temporarily uncomment the mapping below; never do
+    # so on a public host.
+    # ports:
+    #   - "127.0.0.1:3001:3000"
+    volumes:
+      # Layouts are author/CMS-managed files moved onto the host manually.
+      # Bind-mount a real ./layouts folder (next to this compose file) so they
+      # can be dropped in directly; the layout-watcher watches /layouts.
+      - ./layouts:/layouts
+      # Assets, like layouts, are moved onto the host manually — bind-mount
+      # ./assets so files can be dropped in directly (admin: rw for uploads).
+      - ./assets:/assets
+      - builds:/var/www/builds
+    environment:
+      - NODE_ENV=production
+      # MUST match the volume mount points below. Without these the admin
+      # falls back to ./layouts and ./assets (= /app/layouts, /app/assets)
+      # and never sees the mounted volumes: the layout-watcher watches the
+      # wrong dir and asset uploads land in ephemeral container storage.
+      - LAYOUTS_DIR=/layouts
+      - COMPILED_LAYOUTS_DIR=/var/cache/layout-modules
+      - ASSETS_DIR=/assets
+      - BUILDS_DIR=/var/www/builds
+      - DATABASE_URL=postgresql://agenticms:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — see .env.example}@postgres:5432/agenticms
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — generate a long random value, see .env.example}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required — generate a long random value, see .env.example}
+      # Initial admin credentials (first boot only). Optional passthrough, not
+      # ${VAR:?...}: an existing deployment (admin already seeded) keeps booting
+      # without re-supplying it, while a FRESH deployment without ADMIN_PASSWORD
+      # fails closed in the seed (no default-credential admin is ever created).
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@agenticms.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Optional: comma-separated origin allowlist for credentialed CORS.
+      # Leave empty unless a browser app on a different origin must call the
+      # admin API directly (the public site uses the same-origin nginx proxy).
+      - WEBSITE_URL=${WEBSITE_URL:-}
+      # Fastify trustProxy: the docker bridge subnet of the nginx container so
+      # X-Forwarded-For (real client IP) is honoured for rate limiting. Sound
+      # ONLY because admin is not directly published (see header).
+      - TRUST_PROXY=172.16.0.0/12
+    networks:
+      - agenticms
+    depends_on:
+      - postgres
+
+  website:
+    build: ./website
+    ports:
+      - "8081:80"
+      - "8080:8080"
+    environment:
+      - ADMIN_API_URL=http://admin:3000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:?INTERNAL_API_KEY is required — must match admin}
+    volumes:
+      - ./assets:/assets:ro
+      # rw (not :ro): the entrypoint bootstraps placeholder current-*
+      # symlinks into a fresh builds volume before the first admin build.
+      - builds:/var/www/builds
+    networks:
+      - agenticms
+    depends_on:
+      - admin
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=agenticms
+      - POSTGRES_USER=agenticms
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — see .env.example}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - agenticms
+
+volumes:
+  # layouts and assets are host bind-mounts (./layouts, ./assets).
+  builds:
+  pgdata:
+
+networks:
+  agenticms:
+    driver: bridge

@@ -1,0 +1,336 @@
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    log_format main '$remote_addr - $remote_user [$time_local] host="$host" x_forwarded_host="$http_x_forwarded_host" "$request" $status $body_bytes_sent';
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+    keepalive_timeout 15s 10s;
+    keepalive_requests 100;
+    client_header_timeout 10s;
+    client_body_timeout 10s;
+    send_timeout 10s;
+    client_max_body_size 1m;
+    client_body_buffer_size 16k;
+    absolute_redirect off;
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+
+    limit_req_zone $binary_remote_addr zone=static:10m rate=30r/s;
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=auth:10m rate=2r/s;
+    limit_req_zone $binary_remote_addr zone=cli:10m rate=1r/s;
+    limit_req_zone $binary_remote_addr zone=assets:10m rate=20r/s;
+    limit_conn_zone $binary_remote_addr zone=perip:10m;
+    limit_req_status 429;
+    limit_conn_status 429;
+
+    map $host $site_key {
+__SITE_HOST_MAP__
+    }
+
+    map $server_port $build_target {
+        default production;
+        8080 staging;
+    }
+
+    # Admin host, proxied instead of serving static site output.
+    server {
+        listen 80;
+        server_name cms.example.com;
+        limit_conn perip 20;
+
+        location ~ ^/api/auth/ {
+            limit_req zone=auth burst=5 nodelay;
+            limit_conn perip 10;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            client_max_body_size 50m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location ~ ^/api/cli/ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+            limit_req zone=assets burst=10 nodelay;
+            limit_conn perip 10;
+            client_max_body_size 12m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location / {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+    }
+
+    # Production (port 80, public)
+    server {
+        listen 80 default_server;
+        server_name _;
+        set $site_root /var/www/builds/$site_key/current-$build_target;
+        root $site_root;
+        index index.html;
+        limit_conn perip 20;
+
+        location ~ ^/api/auth/ {
+            limit_req zone=auth burst=5 nodelay;
+            limit_conn perip 10;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            client_max_body_size 50m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location ~ ^/api/cli/ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+            limit_req zone=assets burst=10 nodelay;
+            limit_conn perip 10;
+            client_max_body_size 12m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            limit_conn perip 20;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~* ^/assets/.*\.(?:svg|html?|xhtml|xml)$ {
+            root /;
+            limit_req zone=assets burst=20 nodelay;
+            client_max_body_size 1m;
+            try_files $uri =404;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+            add_header Content-Disposition "attachment" always;
+        }
+
+        location /assets/ {
+            alias /assets/;
+            limit_req zone=assets burst=40 nodelay;
+            client_max_body_size 1m;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+        }
+
+        location / {
+            limit_req zone=static burst=40 nodelay;
+            try_files $uri/index.html $uri $uri/ =404;
+        }
+
+        error_page 404 /404.html;
+    }
+
+    # Staging (port 8080, Basic Auth)
+    server {
+        listen 8080 default_server;
+        server_name _;
+        set $site_root /var/www/builds/$site_key/current-$build_target;
+        root $site_root;
+        index index.html;
+        limit_conn perip 20;
+
+        auth_basic "Staging Preview";
+        auth_basic_user_file /var/www/builds/$site_key/.htpasswd-staging;
+
+        location ~ ^/api/auth/ {
+            limit_req zone=auth burst=5 nodelay;
+            limit_conn perip 10;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            client_max_body_size 50m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location ~ ^/api/cli/ {
+            limit_req zone=cli burst=3 nodelay;
+            limit_conn perip 8;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+            limit_req zone=assets burst=10 nodelay;
+            limit_conn perip 10;
+            client_max_body_size 12m;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            limit_conn perip 20;
+            proxy_pass __ADMIN_API_URL__;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 5s;
+            proxy_send_timeout    30s;
+            proxy_read_timeout    30s;
+        }
+
+        location ~* ^/assets/.*\.(?:svg|html?|xhtml|xml)$ {
+            root /;
+            limit_req zone=assets burst=20 nodelay;
+            client_max_body_size 1m;
+            try_files $uri =404;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+            add_header Content-Disposition "attachment" always;
+        }
+
+        location /assets/ {
+            alias /assets/;
+            limit_req zone=assets burst=40 nodelay;
+            client_max_body_size 1m;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
+        }
+
+        location / {
+            limit_req zone=static burst=10 nodelay;
+            try_files $uri/index.html $uri $uri/ =404;
+        }
+
+        error_page 404 /404.html;
+    }
+}

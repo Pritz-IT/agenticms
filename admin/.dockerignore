@@ -1,0 +1,17 @@
+node_modules
+dist
+frontend/node_modules
+frontend/dist
+frontend/.vite
+.env
+.env.*
+test-assets
+test-layouts
+tests
+*.test.ts
+vitest.config.ts
+coverage
+.git
+.gitignore
+*.log
+.DS_Store

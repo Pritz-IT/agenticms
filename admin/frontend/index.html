@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentiCMS Admin</title>
+    <link rel="stylesheet" href="/src/index.css" />
+  </head>
+  <body class="bg-neutral-950 text-neutral-100">
+    <div id="root"></div>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "/preview-runtime/react.js",
+          "react-dom": "/preview-runtime/react-dom.js",
+          "react-dom/client": "/preview-runtime/react-dom-client.js",
+          "react/jsx-runtime": "/preview-runtime/jsx-runtime.js",
+          "@agenticms/components": "/preview-runtime/agenticms-components.js"
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

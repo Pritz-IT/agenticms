@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family:
+      "Geist", "Satoshi", "Aptos", "Segoe UI", system-ui, -apple-system,
+      BlinkMacSystemFont, sans-serif;
+    background: #09090b;
+  }
+
+  * {
+    @apply border-zinc-800;
+  }
+
+  body {
+    @apply m-0 bg-zinc-950 text-zinc-100 antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+
+  input {
+    @apply rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cyan-500/70 focus:ring-4 focus:ring-cyan-500/10;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed;
+  }
+}
+
+@layer components {
+  .app-page {
+    @apply flex min-h-0 flex-1 flex-col;
+  }
+
+  .app-content {
+    @apply flex-1 overflow-auto px-5 py-5 sm:px-7 sm:py-6;
+  }
+
+  .surface {
+    @apply rounded-lg border border-zinc-800/80 bg-zinc-900/55 shadow-[0_24px_80px_-52px_rgba(8,145,178,0.45)];
+  }
+
+  .ui-button {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-700/80 bg-zinc-900 px-3 text-sm font-medium text-zinc-100 transition duration-200 hover:-translate-y-0.5 hover:border-zinc-600 hover:bg-zinc-800 active:translate-y-0 disabled:opacity-50;
+  }
+
+  .ui-button-primary {
+    @apply border-cyan-500/70 bg-cyan-500 text-zinc-950 hover:border-cyan-400 hover:bg-cyan-400;
+  }
+
+  .ui-button-danger {
+    @apply border-red-500/30 bg-red-500/10 text-red-300 hover:border-red-400/50 hover:bg-red-500/15 hover:text-red-200;
+  }
+
+  .ui-button-ghost {
+    @apply border-transparent bg-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900 hover:text-zinc-100;
+  }
+
+  .ui-label {
+    @apply text-xs font-medium uppercase tracking-[0.16em] text-zinc-500;
+  }
+
+  .ui-table-wrap {
+    @apply overflow-hidden rounded-lg border border-zinc-800/90 bg-zinc-950/35;
+  }
+
+  .ui-table {
+    @apply w-full text-sm;
+  }
+
+  .ui-table thead {
+    @apply bg-zinc-900/80 text-[11px] uppercase tracking-[0.16em] text-zinc-500;
+  }
+
+  .ui-table th {
+    @apply px-4 py-3 text-left font-semibold;
+  }
+
+  .ui-table td {
+    @apply px-4 py-3;
+  }
+
+  .ui-table tbody {
+    @apply divide-y divide-zinc-900;
+  }
+
+  .ui-row {
+    @apply transition duration-200 hover:bg-zinc-900/65;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium capitalize;
+  }
+
+  .empty-state {
+    @apply flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-zinc-800/80 bg-zinc-900/55 px-6 py-12 text-center text-zinc-500 shadow-[0_24px_80px_-52px_rgba(8,145,178,0.45)];
+  }
+
+  .skeleton-line {
+    @apply h-4 animate-pulse rounded bg-zinc-800/70;
+  }
+}

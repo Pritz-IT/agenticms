@@ -1,0 +1,38 @@
+# Applied to admin's build (context = repo root). Keeps the build context small.
+
+# Node
+**/node_modules
+**/dist
+**/.astro
+**/.vite
+**/.next
+**/coverage
+
+# Tooling / editor cruft
+.git
+.gitignore
+.idea
+.vscode
+.claude
+.superpowers
+.playwright-mcp
+
+# Tests
+**/tests
+**/*.test.ts
+**/*.test.tsx
+**/vitest.config.ts
+
+# Docs + scratch
+docs
+output
+scripts
+examples
+
+# Env / secrets
+**/.env
+**/.env.*
+
+# OS
+**/.DS_Store
+**/*.log

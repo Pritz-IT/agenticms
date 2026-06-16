@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "outDir": "server/dist",
+    "rootDir": "server",
+    "declaration": false,
+    "skipLibCheck": true
+  },
+  "include": ["server/**/*"]
+}

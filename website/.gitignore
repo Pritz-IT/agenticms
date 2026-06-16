@@ -1,0 +1,10 @@
+/node_modules/
+/dist/
+
+# CMS / tool-managed content — edited in AgentiCMS and moved to the
+# server manually, never committed as source.
+/src/layouts/
+/public/
+# Generated from layouts by the build (still tracked historically — run
+# `git rm --cached website/src/data/config.json` to fully untrack).
+/src/data/config.json

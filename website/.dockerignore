@@ -1,0 +1,21 @@
+# Only nginx.conf and the entrypoint actually land in the image now —
+# everything else gets ignored so the build context is tiny.
+node_modules
+dist
+.astro
+src
+server
+public
+tests
+*.test.ts
+*.test.tsx
+*.md
+.env
+.env.*
+.git
+.gitignore
+*.log
+.DS_Store
+package*.json
+tsconfig.json
+astro.config.mjs

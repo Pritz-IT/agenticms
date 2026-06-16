@@ -1,0 +1,51 @@
+.agenticms/
+website/.astro/
+cli/dist/
+cli/node_modules/
+admin/.layout-modules/
+admin/builds-test/
+
+# Secrets — never commit. Use .env.example as the template.
+.env
+*.env
+!.env.example
+
+# Assets are runtime-only — they live in .agenticms/assets/ (dev) or in the
+# `assets` Docker volume (prod). Never tracked in git; use the upload UI or
+# `npm --prefix admin run db:sync-assets` to register them.
+admin/assets/
+
+# Deployment bind-mounts (docker-compose ./layouts, ./assets). Author/CMS
+# content moved onto the host manually — never committed.
+/layouts/
+/assets/
+
+# Internal/customer website content. Keep it locally for CMS work, but do not
+# publish it with the open-source AgentiCMS repository.
+/admin/layouts/*
+!/admin/layouts/demo/
+!/admin/layouts/demo/**
+/website/src/layouts/
+/docs/*-coaching/
+/docs/*-website-proposal.md
+/docs/*-website-content-map.md
+/docs/submissions-wiring.md
+/docs/img.png
+/docs/logo-inverted.png
+/docs/security/
+/docs/superpowers/
+/scripts/verify-footer-columns.ts
+/ACTIVITY-NOW-HANDOFF.md
+/an-mobile-hero.jpeg
+/website/__an_preview__.tsx
+/website/tests/*-nav.test.tsx
+/website/scripts/motion-entry.mjs
+
+# Local tooling / scratch artifacts — never committed
+.idea/
+.playwright-mcp/
+.superpowers/
+output/
+.claude/worktrees/
+.claude/*.lock
+.DS_Store
