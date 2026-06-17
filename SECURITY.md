@@ -10,9 +10,12 @@ development line unless maintainers announce a supported release branch.
 Please do not report vulnerabilities through public issues, pull requests, or
 discussions.
 
-Use GitHub private vulnerability reporting if it is enabled for the repository.
-If that is not available, contact AgentiCMS maintainers privately at
-`office@example.com` with the subject prefix `AgentiCMS security`.
+Use GitHub private vulnerability reporting:
+
+https://github.com/Pritz-IT/agenticms/security/advisories/new
+
+If private vulnerability reporting is unavailable, do not file a public issue.
+Ask a maintainer to enable private reporting for the repository first.
 
 Include:
 

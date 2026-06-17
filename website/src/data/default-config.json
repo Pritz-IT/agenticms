@@ -1,0 +1,24 @@
+{
+  "settings": {
+    "id": "default-site",
+    "name": "AgentiCMS",
+    "domain": "localhost",
+    "stagingDomain": "staging.localhost",
+    "defaultLocale": "en",
+    "siteUrl": null
+  },
+  "locales": [
+    {
+      "id": "default-locale-en",
+      "code": "en",
+      "label": "English",
+      "isDefault": true,
+      "sortOrder": 0
+    }
+  ],
+  "layouts": [],
+  "pages": [],
+  "navigation": [],
+  "stagingAccess": [],
+  "assets": []
+}

@@ -1,7 +1,17 @@
 {
   "name": "agenticms-admin",
   "version": "0.1.0",
-  "description": "AgentiCMS Admin Backend",
+  "description": "AgentiCMS admin API and build control plane.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pritz-IT/agenticms.git",
+    "directory": "admin"
+  },
+  "bugs": {
+    "url": "https://github.com/Pritz-IT/agenticms/issues"
+  },
+  "homepage": "https://github.com/Pritz-IT/agenticms#readme",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

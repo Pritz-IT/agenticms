@@ -1,7 +1,18 @@
 {
-  "name": "agenticms-admin",
+  "name": "agenticms-admin-frontend",
   "private": true,
   "version": "0.0.1",
+  "description": "AgentiCMS admin web interface.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pritz-IT/agenticms.git",
+    "directory": "admin/frontend"
+  },
+  "bugs": {
+    "url": "https://github.com/Pritz-IT/agenticms/issues"
+  },
+  "homepage": "https://github.com/Pritz-IT/agenticms#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",

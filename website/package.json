@@ -1,5 +1,17 @@
 {
-  "name": "website",
+  "name": "agenticms-website",
+  "version": "0.1.0",
+  "description": "AgentiCMS Astro renderer and nginx static serving layer.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pritz-IT/agenticms.git",
+    "directory": "website"
+  },
+  "bugs": {
+    "url": "https://github.com/Pritz-IT/agenticms/issues"
+  },
+  "homepage": "https://github.com/Pritz-IT/agenticms#readme",
   "type": "module",
   "scripts": {
     "dev": "astro dev",

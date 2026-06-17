@@ -2,6 +2,17 @@
   "name": "agenticms-cli",
   "version": "0.1.0",
   "private": true,
+  "description": "Local AgentiCMS operator CLI for approved site, layout, asset, and build workflows.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pritz-IT/agenticms.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/Pritz-IT/agenticms/issues"
+  },
+  "homepage": "https://github.com/Pritz-IT/agenticms#readme",
   "type": "module",
   "bin": {
     "agenticms": "dist/main.js"

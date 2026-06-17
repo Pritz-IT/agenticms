@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test and Build
+    runs-on: ubuntu-latest
+
+    env:
+      POSTGRES_PASSWORD: ci-postgres-password
+      JWT_SECRET: ci-jwt-secret-long-enough-for-config
+      INTERNAL_API_KEY: ci-internal-api-key
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            admin/package-lock.json
+            admin/frontend/package-lock.json
+            cli/package-lock.json
+            website/package-lock.json
+
+      - name: Admin backend
+        working-directory: admin
+        run: |
+          npm ci
+          npm run db:generate
+          npm run build:tsc
+          npm test
+          npm run build
+
+      - name: Admin frontend
+        working-directory: admin/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: CLI
+        working-directory: cli
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+      - name: Website
+        working-directory: website
+        run: |
+          npm ci
+          npm test
+          npm run build:astro
+
+      - name: Docker Compose config
+        run: docker compose config
