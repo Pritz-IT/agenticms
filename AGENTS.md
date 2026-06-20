@@ -7,7 +7,6 @@ This repository contains two Node/TypeScript apps:
 - `admin/`: Fastify API, Prisma, backend tests, and Vite React frontend under `admin/frontend/`.
 - `cli/`: local AgentiCMS operator CLI for authenticated layout/asset sync.
 - `website/`: Astro public site and tests under `website/tests/`.
-- `docs/`: design notes, plans, and operational docs.
 - `docker-compose.yml`: admin, website, and Postgres topology.
 
 Admin source lives in `admin/src/`; tests live in `admin/tests/`.
@@ -28,7 +27,7 @@ Run commands from the package directory shown:
 - `cd cli && node dist/main.js site create --key demo --name "Demo" --domain demo.example.com --staging-domain staging-demo.example.com --default-locale de`: create a site via the approved CLI token.
 - `cd cli && node dist/main.js status --site demo --url <admin-url>`: check one site.
 - `cd cli && node dist/main.js sync layouts --site demo`: sync selected site layouts.
-- `.agenticms/site.json`: stores the default site and optional per-site local roots.
+- `site.json` stores the default site and optional per-site local roots. Legacy `.agenticms/site.json` is still supported for older workspaces.
 - `cd website && npm run dev`: start Astro locally.
 - `cd website && npm run build:astro`: build the public site.
 - `cd website && npm test`: run website test scripts.
@@ -49,6 +48,12 @@ Before finishing backend or deployment work, run affected tests plus `cd admin &
 ## Security & Configuration Tips
 
 Secrets are mandatory in compose; do not add insecure defaults. Admin should stay behind the website/nginx proxy. Runtime paths must match Docker mounts. Treat layout files as trusted admin-controlled code.
+
+## Visual Planning Privacy
+
+BuilderIO `visual-plan` and `visual-recap` workflows must stay local-only for this repository. Do not call hosted Agent-Native Plan MCP tools, publish plan content, install PR auto-recap actions, or send diffs, screenshots, security findings, customer content, deployment details, or repository context to an external plan service.
+
+When visual planning or recap output is useful, Codex should create local ignored artifacts directly in this repo, for example under `docs/visual-plans/`, and then show the repository owner the exact optional command they may run to send or publish it. Do not run that command automatically.
 
 ## Deployment Permission
 

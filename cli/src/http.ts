@@ -14,6 +14,28 @@ function apiUrl(adminUrl: string, path: string): string {
   return new URL(path, `${adminUrl}/`).toString();
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const retryDelaysMs = [100, 300];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      const retryDelay = retryDelaysMs[attempt];
+      if (retryDelay === undefined) break;
+      await sleep(retryDelay);
+    }
+  }
+
+  throw lastError;
+}
+
 export async function requestJson<T>(
   adminUrl: string,
   path: string,
@@ -28,7 +50,7 @@ export async function requestJson<T>(
     headers.set("authorization", `Bearer ${credential.token}`);
   }
 
-  const response = await fetch(apiUrl(adminUrl, path), { ...options, headers });
+  const response = await fetchWithRetry(apiUrl(adminUrl, path), { ...options, headers });
   const text = await response.text();
 
   if (!response.ok) {

@@ -170,12 +170,12 @@ export function Sidebar() {
         effectiveCollapsed ? "w-16 items-center px-3" : "w-56 items-stretch px-3"
       }`}
     >
-      {/* The SF chip is always a fixed 10x10 in the same x position. The
+      {/* The brand chip is always a fixed 10x10 in the same x position. The
           wordmark slides in as a sibling when expanded, so the chip itself
           doesn't reflow during the width transition. */}
       <div className="mb-3 flex h-10 w-full items-center gap-2">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10 text-[11px] font-semibold tracking-[0.18em] text-cyan-200">
-          SF
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-cyan-400/30 bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.22),transparent_34%),linear-gradient(135deg,rgba(34,211,238,0.24),rgba(14,116,144,0.12))] text-[11px] font-semibold tracking-[0.16em] text-cyan-100 shadow-[0_0_28px_-16px_rgba(34,211,238,0.9)]">
+          AI
         </div>
         {!effectiveCollapsed && (
           <span className="truncate text-[10px] font-medium tracking-[0.12em] text-cyan-200/60">

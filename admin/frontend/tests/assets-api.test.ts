@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "vitest";
-import { copyGlobalAssetToSite, fetchAssetLibrary, migrateLegacyAssets } from "../src/api/assets";
+import { convertAssetToWebp, copyGlobalAssetToSite, fetchAssetLibrary, migrateLegacyAssets } from "../src/api/assets";
 
 describe("assets api", () => {
   const realFetch = globalThis.fetch;
@@ -31,6 +31,36 @@ describe("assets api", () => {
 
     assert.deepEqual(calls, [
       { url: "/api/sites/demo/assets/migrate-legacy", method: "POST" },
+    ]);
+  });
+
+  it("uses the site-scoped existing asset WebP conversion endpoint", async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method });
+      return new Response(
+        JSON.stringify({
+          asset: {
+            id: "asset-1",
+            filename: "hero.webp",
+            mimeType: "image/webp",
+            filePath: "/assets/demo/hero.webp",
+            uploadedAt: "2026-06-09T00:00:00.000Z",
+            uploadedBy: "test",
+          },
+          oldFilePath: "/assets/demo/hero.png",
+          newFilePath: "/assets/demo/hero.webp",
+          contentUpdated: 1,
+          layoutsUpdated: 1,
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+
+    await convertAssetToWebp("demo", "asset-1");
+
+    assert.deepEqual(calls, [
+      { url: "/api/sites/demo/assets/asset-1/convert-webp", method: "POST" },
     ]);
   });
 

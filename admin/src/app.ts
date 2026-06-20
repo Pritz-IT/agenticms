@@ -37,6 +37,12 @@ import {
 } from "./routes/global-layout-templates.js";
 
 const ATTACHMENT_ASSET_EXTENSIONS = new Set([".svg", ".html", ".htm", ".xhtml", ".xml"]);
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+} as const;
 
 // Fastify's trustProxy: boolean | string (comma-sep IPs/subnets) | number.
 // A literal "true"/"false" string would otherwise be treated as a hostname,
@@ -81,6 +87,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // browser can log/show it; the JSON body is never changed.
   app.addHook("onSend", async (request, reply, payload) => {
     reply.header("x-request-id", request.id);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      reply.header(name, value);
+    }
     return payload;
   });
 

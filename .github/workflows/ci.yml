@@ -15,6 +15,24 @@ jobs:
       POSTGRES_PASSWORD: ci-postgres-password
       JWT_SECRET: ci-jwt-secret-long-enough-for-config
       INTERNAL_API_KEY: ci-internal-api-key
+      # Matches the default the admin test harness expects
+      # (admin/tests/helpers/setup.ts), pointed at the Postgres service below.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5435/agenticms_test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agenticms_test
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout

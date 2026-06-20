@@ -52,6 +52,9 @@ services:
       # fails closed in the seed (no default-credential admin is ever created).
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@agenticms.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Public admin origin used in downloadable CLI install scripts. Set this
+      # in production, e.g. ADMIN_PUBLIC_URL=https://cms.example.com.
+      - ADMIN_PUBLIC_URL=${ADMIN_PUBLIC_URL:-}
       # Optional: comma-separated origin allowlist for credentialed CORS.
       # Leave empty unless a browser app on a different origin must call the
       # admin API directly (the public site uses the same-origin nginx proxy).

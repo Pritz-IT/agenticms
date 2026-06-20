@@ -3,9 +3,9 @@ import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "../lib/toast-error";
-import { File, ImageIcon, ImagePlus, RefreshCw, Trash2, Type, Upload, UploadCloud } from "lucide-react";
+import { File, ImageIcon, ImagePlus, RefreshCw, Trash2, Type, Upload, UploadCloud, Wand2 } from "lucide-react";
 import { TopBar } from "../components/TopBar";
-import { copyGlobalAssetToSite, deleteAsset, fetchAssets, migrateLegacyAssets, uploadAsset } from "../api/assets";
+import { convertAssetToWebp, copyGlobalAssetToSite, deleteAsset, fetchAssets, migrateLegacyAssets, uploadAsset } from "../api/assets";
 import type { Asset } from "../api/types";
 import { DEFAULT_SITE_KEY } from "../site-routing";
 
@@ -62,6 +62,22 @@ export function AssetsPage() {
     },
     onError: (err) => {
       toastError("Failed to migrate legacy assets", err);
+    },
+  });
+
+  const convertWebpMutation = useMutation({
+    mutationFn: (id: string) => convertAssetToWebp(siteKey, id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["assets", siteKey] });
+      qc.invalidateQueries({ queryKey: ["asset-library", siteKey] });
+      qc.invalidateQueries({ queryKey: ["pages", siteKey] });
+      qc.invalidateQueries({ queryKey: ["layouts", siteKey] });
+      toast.success(`Converted ${result.asset.filename}`, {
+        description: `${result.contentUpdated} content ${result.contentUpdated === 1 ? "field" : "fields"} updated`,
+      });
+    },
+    onError: (err) => {
+      toastError("Failed to convert asset", err);
     },
   });
 
@@ -294,8 +310,10 @@ export function AssetsPage() {
                       asset={asset}
                       onDelete={onDelete}
                       onCopyLatest={(item) => copyLatestGlobalMutation.mutate(item)}
+                      onConvertWebp={(item) => convertWebpMutation.mutate(item.id)}
                       disabled={deleteMutation.isPending}
                       copyDisabled={copyLatestGlobalMutation.isPending}
+                      convertDisabled={convertWebpMutation.isPending}
                     />
                   ) : (
                     <OtherCard
@@ -418,11 +436,13 @@ interface CardProps {
   asset: Asset;
   onDelete: (asset: Asset) => void;
   onCopyLatest?: (asset: Asset) => void;
+  onConvertWebp?: (asset: Asset) => void;
   disabled?: boolean;
   copyDisabled?: boolean;
+  convertDisabled?: boolean;
 }
 
-function ImageCard({ asset, onDelete, onCopyLatest, disabled, copyDisabled }: CardProps) {
+function ImageCard({ asset, onDelete, onCopyLatest, onConvertWebp, disabled, copyDisabled, convertDisabled }: CardProps) {
   return (
     <div className="surface group flex flex-col overflow-hidden transition duration-200 hover:-translate-y-1 hover:border-zinc-700">
       <div className="flex aspect-video items-center justify-center overflow-hidden bg-zinc-950">
@@ -436,8 +456,10 @@ function ImageCard({ asset, onDelete, onCopyLatest, disabled, copyDisabled }: Ca
         asset={asset}
         onDelete={onDelete}
         onCopyLatest={onCopyLatest}
+        onConvertWebp={onConvertWebp}
         disabled={disabled}
         copyDisabled={copyDisabled}
+        convertDisabled={convertDisabled}
       />
     </div>
   );
@@ -487,8 +509,9 @@ interface CardFooterProps extends CardProps {
   icon?: React.ReactNode;
 }
 
-function CardFooter({ asset, onDelete, onCopyLatest, disabled, copyDisabled, icon }: CardFooterProps) {
+function CardFooter({ asset, onDelete, onCopyLatest, onConvertWebp, disabled, copyDisabled, convertDisabled, icon }: CardFooterProps) {
   const canCopyLatest = !!asset.differsFromGlobal && !!asset.globalAssetId && !!onCopyLatest;
+  const canConvertWebp = !!onConvertWebp && (asset.mimeType === "image/png" || asset.mimeType === "image/jpeg");
 
   return (
     <div className="flex flex-1 flex-col gap-1 p-3">
@@ -509,6 +532,17 @@ function CardFooter({ asset, onDelete, onCopyLatest, disabled, copyDisabled, ico
           >
             <RefreshCw className="h-4 w-4" />
             Copy latest global asset
+          </button>
+        )}
+        {canConvertWebp && (
+          <button
+            type="button"
+            onClick={() => onConvertWebp(asset)}
+            disabled={convertDisabled}
+            className="ui-button ui-button-ghost text-cyan-300 hover:text-cyan-200"
+          >
+            <Wand2 className="h-4 w-4" />
+            Convert to WebP
           </button>
         )}
         <button

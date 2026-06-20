@@ -5,11 +5,11 @@ import { requireAdminPassword, seedAdminUser } from "../../prisma/seed.js";
 // A minimal fake prisma exposing only the `user` delegate methods seedAdminUser
 // touches. Keeps the security assertion deterministic — no DB required, so this
 // test proves the invariant even when the test Postgres is down.
-function fakePrisma(existingUser: { id: string } | null) {
+function fakePrisma(existingUser: { id: string; email: string } | null) {
   const create = vi.fn().mockResolvedValue({ id: "created-id" });
-  const findUnique = vi.fn().mockResolvedValue(existingUser);
-  const client = { user: { findUnique, create } } as unknown as PrismaClient;
-  return { client, create, findUnique };
+  const findFirst = vi.fn().mockResolvedValue(existingUser);
+  const client = { user: { findFirst, create } } as unknown as PrismaClient;
+  return { client, create, findFirst };
 }
 
 describe("requireAdminPassword", () => {
@@ -63,10 +63,14 @@ describe("seedAdminUser", () => {
   });
 
   it("is idempotent: skips creation and does NOT require a password when an admin already exists", async () => {
-    const { client, create } = fakePrisma({ id: "existing" });
+    const { client, create, findFirst } = fakePrisma({ id: "existing", email: "admin@old-name.local" });
     // Deliberately no ADMIN_PASSWORD: an existing deployment must keep booting.
     const res = await seedAdminUser(client, {});
-    expect(res).toEqual({ created: false, email: "admin@agenticms.local" });
+    expect(res).toEqual({ created: false, email: "admin@old-name.local" });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { role: "admin" },
+      orderBy: { createdAt: "asc" },
+    });
     expect(create).not.toHaveBeenCalled();
   });
 });

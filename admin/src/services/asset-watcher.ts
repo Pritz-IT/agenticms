@@ -63,7 +63,15 @@ async function walk(
   urlPrefix: string
 ): Promise<Array<{ full: string; url: string }>> {
   const out: Array<{ full: string; url: string }> = [];
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+      return out;
+    }
+    throw err;
+  }
   for (const entry of entries) {
     const full = join(dir, entry.name);
     const url = `${urlPrefix}/${entry.name}`;

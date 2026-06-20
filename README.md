@@ -1,6 +1,6 @@
 # AgentiCMS
 
-![AgentiCMS 3D logo with a robot agent peeking from the right](docs/assets/agenticms-logo-3d.webp)
+![AgentiCMS 3D logo with a robot agent peeking from the right](readme-assets/agenticms-logo-3d.webp)
 
 ![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-0b7285)
 ![AI agent contributions required](https://img.shields.io/badge/contributions-AI--agent--assisted-111827)
@@ -55,7 +55,6 @@ Production output is static HTML served by the website layer.
 - `cli/`: local operator CLI for approved login, site management, layout sync,
   asset sync, and build commands.
 - `website/`: Astro renderer and nginx/static serving layer.
-- `docs/`: design notes, implementation plans, and operational documentation.
 - `docker-compose.yml`: example admin, website, and PostgreSQL topology.
 
 The public site is static output. The admin API is intended to stay private
@@ -101,6 +100,8 @@ agenticms status --site demo --url https://cms.example.com
 agenticms sync layouts --site demo
 agenticms sync assets --site demo
 ```
+
+Workspaces use root-level `site.json`, `layouts/`, and `assets/`. Older `.agenticms/site.json` workspaces remain supported.
 
 Production builds and deployments must be explicitly approved by the site owner.
 Use staging builds for review whenever possible.

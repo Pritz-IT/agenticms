@@ -1,5 +1,6 @@
 .agenticms/
 website/.astro/
+website/.git/
 cli/dist/
 cli/node_modules/
 admin/.layout-modules/
@@ -26,14 +27,7 @@ admin/assets/
 !/admin/layouts/demo/
 !/admin/layouts/demo/**
 /website/src/layouts/
-/docs/*-coaching/
-/docs/*-website-proposal.md
-/docs/*-website-content-map.md
-/docs/submissions-wiring.md
-/docs/img.png
-/docs/logo-inverted.png
-/docs/security/
-/docs/superpowers/
+/docs/
 /scripts/verify-footer-columns.ts
 /ACTIVITY-NOW-HANDOFF.md
 /an-mobile-hero.jpeg

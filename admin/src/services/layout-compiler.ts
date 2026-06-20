@@ -66,7 +66,13 @@ async function buildLayout(absLayoutPath: string): Promise<{ code: string; input
     target: "es2020",
     metafile: true,
     logLevel: "silent",
-    external: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "@agenticms/components"],
+    external: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "react/jsx-runtime",
+      "@agenticms/components",
+    ],
   });
 
   const output = result.outputFiles?.[0]?.text;

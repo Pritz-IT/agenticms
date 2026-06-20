@@ -40,13 +40,42 @@ function assertSiteKey(siteKey: string): string {
   return siteKey;
 }
 
-function resolveConfiguredRoot(agenticmsRoot: string, configuredPath: string, label: string): string {
-  const root = resolve(agenticmsRoot);
+function resolveConfiguredRoot(workspaceRoot: string, configuredPath: string, label: string): string {
+  const root = resolve(workspaceRoot);
   const selected = resolve(root, configuredPath);
   if (selected !== root && !selected.startsWith(root + sep)) {
-    throw new Error(`${label} site root escapes .agenticms: ${configuredPath}`);
+    throw new Error(`${label} root escapes AgentiCMS workspace: ${configuredPath}`);
   }
   return selected;
+}
+
+async function readSiteConfig(projectRoot: string): Promise<{ parsed: SiteConfigFile; workspaceRoot: string }> {
+  const rootConfigPath = join(projectRoot, "site.json");
+  try {
+    const raw = await readFile(rootConfigPath, "utf-8");
+    return {
+      parsed: JSON.parse(raw) as SiteConfigFile,
+      workspaceRoot: projectRoot,
+    };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  const legacyConfigPath = join(projectRoot, ".agenticms", "site.json");
+  try {
+    const raw = await readFile(legacyConfigPath, "utf-8");
+    return {
+      parsed: JSON.parse(raw) as SiteConfigFile,
+      workspaceRoot: join(projectRoot, ".agenticms"),
+    };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  return {
+    parsed: {},
+    workspaceRoot: join(projectRoot, ".agenticms"),
+  };
 }
 
 export function normalizeAdminUrl(input: string): string {
@@ -148,49 +177,28 @@ export async function removeCredential(adminUrl?: string, path = defaultCredenti
 }
 
 export async function resolveSiteSelection(projectRoot: string, explicitSite?: string): Promise<SiteSelection> {
-  const siteConfigPath = join(projectRoot, ".agenticms", "site.json");
-  const parsed: SiteConfigFile = await readFile(siteConfigPath, "utf-8")
-    .then((raw) => JSON.parse(raw) as SiteConfigFile)
-    .catch((err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw err;
-    });
+  const { parsed, workspaceRoot } = await readSiteConfig(projectRoot);
   const siteKey = explicitSite ?? parsed.site;
-  if (!siteKey) throw new Error("No site selected. Pass --site <key> or create .agenticms/site.json.");
+  if (!siteKey) throw new Error("No site selected. Pass --site <key> or create site.json.");
   const safeSiteKey = assertSiteKey(siteKey);
-  const agenticmsRoot = join(projectRoot, ".agenticms");
   const local = parsed.sites?.[siteKey] ?? {};
   return {
     siteKey: safeSiteKey,
-    layoutsRoot: resolveConfiguredRoot(agenticmsRoot, local.layouts ?? "layouts", "layouts"),
-    assetsRoot: resolveConfiguredRoot(agenticmsRoot, local.assets ?? "assets", "assets"),
+    layoutsRoot: resolveConfiguredRoot(workspaceRoot, local.layouts ?? "layouts", "layouts"),
+    assetsRoot: resolveConfiguredRoot(workspaceRoot, local.assets ?? "assets", "assets"),
   };
 }
 
 export async function resolveGlobalLayoutSelection(projectRoot: string): Promise<GlobalLayoutSelection> {
-  const siteConfigPath = join(projectRoot, ".agenticms", "site.json");
-  const parsed: SiteConfigFile = await readFile(siteConfigPath, "utf-8")
-    .then((raw) => JSON.parse(raw) as SiteConfigFile)
-    .catch((err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw err;
-    });
-  const agenticmsRoot = join(projectRoot, ".agenticms");
+  const { parsed, workspaceRoot } = await readSiteConfig(projectRoot);
   return {
-    globalLayoutsRoot: resolveConfiguredRoot(agenticmsRoot, parsed.globalLayouts ?? "layouts/_global", "global layouts"),
+    globalLayoutsRoot: resolveConfiguredRoot(workspaceRoot, parsed.globalLayouts ?? "layouts/_global", "global layouts"),
   };
 }
 
 export async function resolveGlobalAssetSelection(projectRoot: string): Promise<GlobalAssetSelection> {
-  const siteConfigPath = join(projectRoot, ".agenticms", "site.json");
-  const parsed: SiteConfigFile = await readFile(siteConfigPath, "utf-8")
-    .then((raw) => JSON.parse(raw) as SiteConfigFile)
-    .catch((err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw err;
-    });
-  const agenticmsRoot = join(projectRoot, ".agenticms");
+  const { parsed, workspaceRoot } = await readSiteConfig(projectRoot);
   return {
-    globalAssetsRoot: resolveConfiguredRoot(agenticmsRoot, parsed.globalAssets ?? "assets/_global", "global assets"),
+    globalAssetsRoot: resolveConfiguredRoot(workspaceRoot, parsed.globalAssets ?? "assets/_global", "global assets"),
   };
 }

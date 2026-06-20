@@ -37,10 +37,13 @@ export async function seedAdminUser(
 ): Promise<{ created: boolean; email: string }> {
   const email = env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL;
 
-  const existingAdmin = await prisma.user.findUnique({ where: { email } });
+  const existingAdmin = await prisma.user.findFirst({
+    where: { role: 'admin' },
+    orderBy: { createdAt: 'asc' },
+  });
   if (existingAdmin) {
-    console.log(`Admin user already exists: ${email}`);
-    return { created: false, email };
+    console.log(`Admin user already exists: ${existingAdmin.email}`);
+    return { created: false, email: existingAdmin.email };
   }
 
   const password = requireAdminPassword(env);

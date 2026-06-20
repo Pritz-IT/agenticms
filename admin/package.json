@@ -16,7 +16,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "npm run build:server && npm run build:seed",
-    "build:server": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --external:@prisma/client --external:bcrypt --external:esbuild --external:fsevents --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build:server": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --external:@prisma/client --external:bcrypt --external:esbuild --external:fsevents --external:sharp --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "build:seed": "esbuild prisma/seed.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/seed.js --external:@prisma/client --external:bcrypt --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "build:tsc": "tsc",
     "start": "node dist/index.js",
@@ -36,7 +36,8 @@
     "bcrypt": "^6.0.0",
     "esbuild": "^0.28.0",
     "prisma": "^5.22.0",
-    "sanitize-html": "^2.17.5"
+    "sanitize-html": "^2.17.5",
+    "sharp": "^0.35.1"
   },
   "devDependencies": {
     "@fastify/cookie": "^11.0.2",

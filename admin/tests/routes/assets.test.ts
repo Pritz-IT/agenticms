@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { config } from "../../src/config.js";
 import type { FastifyInstance } from "fastify";
+import sharp from "sharp";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
 import { promises as fs } from "fs";
 import path from "path";
@@ -12,11 +13,36 @@ let editorToken: string;
 let tempDir: string;
 let assetsDir: string;
 let demoSite: { id: string; key: string };
+let tinyPng: Buffer;
+
+function multipartFile(filename: string, contentType: string, body: Buffer) {
+  const boundary = `----agenticms-test-${Math.random().toString(16).slice(2)}`;
+  const payload = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`,
+    ),
+    body,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+
+  return {
+    payload,
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
 
 beforeAll(async () => {
   tempDir = await fs.mkdtemp(path.join(tmpdir(), "sf-assets-route-"));
   assetsDir = path.join(tempDir, "assets");
   (config as { ASSETS_DIR: string }).ASSETS_DIR = assetsDir;
+  tinyPng = await sharp({
+    create: {
+      width: 1,
+      height: 1,
+      channels: 4,
+      background: { r: 0, g: 128, b: 255, alpha: 1 },
+    },
+  }).png().toBuffer();
   app = await buildApp({ logger: false });
   await app.ready();
   await fs.mkdir(assetsDir, { recursive: true });
@@ -52,6 +78,181 @@ beforeEach(async () => {
 
   const { user: editor } = await createTestUser(app, { role: "editor" });
   editorToken = getAccessToken(editor);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/sites/:siteKey/assets
+// ---------------------------------------------------------------------------
+describe("POST /api/sites/:siteKey/assets", () => {
+  it("converts PNG editor uploads to WebP before storing the asset", async () => {
+    const upload = multipartFile("Hero Image.PNG", "image/png", tinyPng);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/sites/demo/assets",
+      headers: {
+        authorization: `Bearer ${editorToken}`,
+        "content-type": upload.contentType,
+      },
+      payload: upload.payload,
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      filename: "Hero Image.webp",
+      mimeType: "image/webp",
+    });
+
+    const asset = await app.prisma.asset.findFirstOrThrow({ where: { siteId: demoSite.id } });
+    expect(asset.filePath).toMatch(/^\/assets\/demo\/[0-9a-f-]+-Hero_Image\.webp$/);
+
+    const diskPath = path.join(assetsDir, asset.filePath.slice("/assets/".length));
+    const stored = await fs.readFile(diskPath);
+    expect(stored.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(stored.subarray(8, 12).toString("ascii")).toBe("WEBP");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/sites/:siteKey/assets/:id/convert-webp
+// ---------------------------------------------------------------------------
+describe("POST /api/sites/:siteKey/assets/:id/convert-webp", () => {
+  it("converts an existing PNG asset to WebP and rewrites site references", async () => {
+    const siteAssetsDir = path.join(assetsDir, "demo");
+    await fs.mkdir(siteAssetsDir, { recursive: true });
+    const oldFilePath = "/assets/demo/hero.png";
+    const oldDiskPath = path.join(siteAssetsDir, "hero.png");
+    await fs.writeFile(oldDiskPath, tinyPng);
+
+    const layout = await app.prisma.layout.create({
+      data: {
+        siteId: demoSite.id,
+        name: "Home",
+        filePath: "Home.tsx",
+        detectedKeys: {
+          "hero.image": { type: "image", initial: oldFilePath },
+          "hero.title": { type: "text", initial: "Keep me" },
+        },
+      },
+    });
+    const page = await app.prisma.page.create({
+      data: {
+        siteId: demoSite.id,
+        layoutId: layout.id,
+        path: "/",
+      },
+    });
+    await app.prisma.content.create({
+      data: {
+        pageId: page.id,
+        key: "hero.image",
+        locale: "de",
+        value: oldFilePath,
+        type: "image",
+      },
+    });
+    const asset = await app.prisma.asset.create({
+      data: {
+        siteId: demoSite.id,
+        filename: "hero.png",
+        mimeType: "image/png",
+        filePath: oldFilePath,
+        uploadedBy: "test",
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/sites/demo/assets/${asset.id}/convert-webp`,
+      headers: { authorization: `Bearer ${editorToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      oldFilePath,
+      newFilePath: "/assets/demo/hero.webp",
+      contentUpdated: 1,
+      layoutsUpdated: 1,
+      asset: {
+        id: asset.id,
+        filename: "hero.webp",
+        mimeType: "image/webp",
+        filePath: "/assets/demo/hero.webp",
+      },
+    });
+
+    await expect(fs.readFile(oldDiskPath)).rejects.toMatchObject({ code: "ENOENT" });
+    const stored = await fs.readFile(path.join(siteAssetsDir, "hero.webp"));
+    expect(stored.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(stored.subarray(8, 12).toString("ascii")).toBe("WEBP");
+
+    await expect(app.prisma.content.findFirstOrThrow({ where: { pageId: page.id, key: "hero.image" } })).resolves.toMatchObject({
+      value: "/assets/demo/hero.webp",
+    });
+    await expect(app.prisma.layout.findUniqueOrThrow({ where: { id: layout.id } })).resolves.toMatchObject({
+      detectedKeys: {
+        "hero.image": { type: "image", initial: "/assets/demo/hero.webp" },
+        "hero.title": { type: "text", initial: "Keep me" },
+      },
+    });
+  });
+
+  it("updates duplicate asset rows that point at the same converted file", async () => {
+    const siteAssetsDir = path.join(assetsDir, "demo");
+    await fs.mkdir(siteAssetsDir, { recursive: true });
+    const oldFilePath = "/assets/demo/duplicate-hero.png";
+    const oldDiskPath = path.join(siteAssetsDir, "duplicate-hero.png");
+    await fs.writeFile(oldDiskPath, tinyPng);
+
+    const first = await app.prisma.asset.create({
+      data: {
+        siteId: demoSite.id,
+        filename: "duplicate-hero.png",
+        mimeType: "image/png",
+        filePath: oldFilePath,
+        uploadedBy: "first",
+      },
+    });
+    await app.prisma.asset.create({
+      data: {
+        siteId: demoSite.id,
+        filename: "duplicate-hero.png",
+        mimeType: "image/png",
+        filePath: oldFilePath,
+        uploadedBy: "second",
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/sites/demo/assets/${first.id}/convert-webp`,
+      headers: { authorization: `Bearer ${editorToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const rows = await app.prisma.asset.findMany({
+      where: { siteId: demoSite.id },
+      orderBy: { uploadedBy: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        filename: "duplicate-hero.webp",
+        mimeType: "image/webp",
+        filePath: "/assets/demo/duplicate-hero.webp",
+        uploadedBy: "first",
+      }),
+      expect.objectContaining({
+        filename: "duplicate-hero.webp",
+        mimeType: "image/webp",
+        filePath: "/assets/demo/duplicate-hero.webp",
+        uploadedBy: "second",
+      }),
+    ]);
+    await expect(fs.readFile(oldDiskPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.readFile(path.join(siteAssetsDir, "duplicate-hero.webp"))).resolves.toBeDefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

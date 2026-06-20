@@ -33,6 +33,36 @@ describe("resolveSiteSelection", () => {
     });
   });
 
+  it("supports a root-level AgentiCMS workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sf-site-"));
+    await writeFile(
+      join(root, "site.json"),
+      JSON.stringify({
+        site: "acme",
+        sites: { acme: { layouts: "layouts/acme", assets: "assets" } },
+      })
+    );
+
+    await expect(resolveSiteSelection(root)).resolves.toEqual({
+      siteKey: "acme",
+      layoutsRoot: join(root, "layouts", "acme"),
+      assetsRoot: join(root, "assets"),
+    });
+  });
+
+  it("prefers root-level site.json over legacy .agenticms/site.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sf-site-"));
+    await mkdir(join(root, ".agenticms"), { recursive: true });
+    await writeFile(join(root, ".agenticms", "site.json"), JSON.stringify({ site: "legacy" }));
+    await writeFile(join(root, "site.json"), JSON.stringify({ site: "root" }));
+
+    await expect(resolveSiteSelection(root)).resolves.toMatchObject({
+      siteKey: "root",
+      layoutsRoot: join(root, "layouts"),
+      assetsRoot: join(root, "assets"),
+    });
+  });
+
   it("rejects configured roots that escape .agenticms", async () => {
     const root = await mkdtemp(join(tmpdir(), "sf-site-"));
     await mkdir(join(root, ".agenticms"), { recursive: true });
@@ -44,7 +74,7 @@ describe("resolveSiteSelection", () => {
       })
     );
 
-    await expect(resolveSiteSelection(root)).rejects.toThrow("site root escapes .agenticms");
+    await expect(resolveSiteSelection(root)).rejects.toThrow("root escapes AgentiCMS workspace");
   });
 });
 
@@ -70,12 +100,21 @@ describe("resolveGlobalLayoutSelection", () => {
     });
   });
 
+  it("reads root-level global layout root from site.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sf-site-"));
+    await writeFile(join(root, "site.json"), JSON.stringify({ site: "demo", globalLayouts: "layouts/_global" }));
+
+    await expect(resolveGlobalLayoutSelection(root)).resolves.toEqual({
+      globalLayoutsRoot: join(root, "layouts", "_global"),
+    });
+  });
+
   it("rejects global layout roots that escape .agenticms", async () => {
     const root = await mkdtemp(join(tmpdir(), "sf-site-"));
     await mkdir(join(root, ".agenticms"), { recursive: true });
     await writeFile(join(root, ".agenticms", "site.json"), JSON.stringify({ globalLayouts: "../outside" }));
 
-    await expect(resolveGlobalLayoutSelection(root)).rejects.toThrow("global layouts site root escapes .agenticms");
+    await expect(resolveGlobalLayoutSelection(root)).rejects.toThrow("global layouts root escapes AgentiCMS workspace");
   });
 });
 
@@ -101,11 +140,20 @@ describe("resolveGlobalAssetSelection", () => {
     });
   });
 
+  it("reads root-level global asset root from site.json", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sf-site-"));
+    await writeFile(join(root, "site.json"), JSON.stringify({ site: "demo", globalAssets: "assets/_global" }));
+
+    await expect(resolveGlobalAssetSelection(root)).resolves.toEqual({
+      globalAssetsRoot: join(root, "assets", "_global"),
+    });
+  });
+
   it("rejects global asset roots that escape .agenticms", async () => {
     const root = await mkdtemp(join(tmpdir(), "sf-site-"));
     await mkdir(join(root, ".agenticms"), { recursive: true });
     await writeFile(join(root, ".agenticms", "site.json"), JSON.stringify({ globalAssets: "../outside" }));
 
-    await expect(resolveGlobalAssetSelection(root)).rejects.toThrow("global assets site root escapes .agenticms");
+    await expect(resolveGlobalAssetSelection(root)).rejects.toThrow("global assets root escapes AgentiCMS workspace");
   });
 });

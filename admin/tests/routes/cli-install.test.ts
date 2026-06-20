@@ -36,12 +36,23 @@ describe("CLI installer downloads", () => {
     expect(res.headers["content-type"]).toContain("text/x-shellscript");
     expect(res.headers["cache-control"]).toBe("public, max-age=300");
     expect(res.headers["etag"]).toMatch(/^"agenticms-cli-install:/);
-    expect(res.body).toContain("DEFAULT_AGENTICMS_ADMIN_URL='http://cms.example.test'");
+    expect(res.body).toContain("DEFAULT_AGENTICMS_ADMIN_URL='https://cms.example.test'");
     expect(res.body).toContain('AGENTICMS_ADMIN_URL="${AGENTICMS_ADMIN_URL:-$DEFAULT_AGENTICMS_ADMIN_URL}"');
     expect(res.body).toContain("/api/cli/agenticms-cli.tar.gz");
     expect(res.body).toContain("\"$BIN_DIR/agenticms\" login \"$AGENTICMS_ADMIN_URL\"");
     expect(res.body).not.toContain("JWT_SECRET");
     expect(res.body).not.toContain("INTERNAL_API_KEY");
+  });
+
+  it("keeps local development installer origins on http", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/cli/install.sh",
+      headers: { host: "localhost:3000" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("DEFAULT_AGENTICMS_ADMIN_URL='http://localhost:3000'");
   });
 
   it("uses configured public admin origin after stripping path, query, and fragment", async () => {
@@ -57,6 +68,19 @@ describe("CLI installer downloads", () => {
     expect(res.body).toContain("DEFAULT_AGENTICMS_ADMIN_URL='https://cms.example.test'");
     expect(res.body).not.toContain("evil.test");
     expect(res.body).not.toContain("/path?q=1#x");
+  });
+
+  it("rejects configured non-local http admin origins", async () => {
+    setAdminPublicUrl("http://cms.example.test");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/cli/install.sh",
+      headers: { host: "cms.example.test" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toHaveProperty("error");
   });
 
   it("rejects host-derived installer origins with shell metacharacters", async () => {

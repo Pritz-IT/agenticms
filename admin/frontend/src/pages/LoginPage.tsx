@@ -33,8 +33,8 @@ export function LoginPage() {
     <div className="flex min-h-[100dvh] items-center justify-center bg-[radial-gradient(circle_at_25%_0%,rgba(8,145,178,0.16),transparent_32%),linear-gradient(135deg,#09090b,#111113)] px-4">
       <div className="surface w-full max-w-sm p-8">
         <div className="mb-7">
-          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-cyan-400/30 bg-cyan-400/10 text-[11px] font-semibold tracking-[0.18em] text-cyan-200">
-            SF
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-cyan-400/30 bg-[radial-gradient(circle_at_35%_25%,rgba(255,255,255,0.22),transparent_34%),linear-gradient(135deg,rgba(34,211,238,0.24),rgba(14,116,144,0.12))] text-[11px] font-semibold tracking-[0.16em] text-cyan-100 shadow-[0_0_34px_-18px_rgba(34,211,238,0.9)]">
+            AI
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">AgentiCMS</h1>
           <p className="mt-1 text-sm text-zinc-500">Sign in to manage your site</p>

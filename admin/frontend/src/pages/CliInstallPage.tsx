@@ -17,6 +17,7 @@ export function cliUsageCommands(adminOrigin: string, siteKey: string): string[]
   return [
     `agenticms login ${adminOrigin}`,
     `agenticms status --site ${siteKey} --url ${adminOrigin}`,
+    `agenticms diff layouts --site ${siteKey} --url ${adminOrigin}`,
     `agenticms sync layouts --site ${siteKey} --url ${adminOrigin}`,
     `agenticms sync assets --site ${siteKey} --url ${adminOrigin}`,
   ];
@@ -27,7 +28,7 @@ export function aiAgentInstructions(adminOrigin: string, siteKey: string): strin
     "You are working with AgentiCMS through the local CLI.",
     "",
     "Rules:",
-    "1. Install the CLI from the admin panel if it is not installed.",
+    "1. Install the CLI from this site's admin panel if it is not installed.",
     `2. Authenticate with: agenticms login ${adminOrigin}`,
     `3. Check access before changing files: agenticms status --site ${siteKey} --url ${adminOrigin}`,
     `4. Inspect layout drift before edits: agenticms diff layouts --site ${siteKey} --url ${adminOrigin}`,

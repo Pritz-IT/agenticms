@@ -11,6 +11,14 @@ export interface AssetMigrationResult {
   layoutsUpdated: number;
 }
 
+export interface AssetWebpConversionResult {
+  asset: Asset;
+  oldFilePath: string;
+  newFilePath: string;
+  contentUpdated: number;
+  layoutsUpdated: number;
+}
+
 export function fetchAssets(siteKey: string): Promise<Asset[]> {
   return api<Asset[]>(`/api/sites/${siteKey}/assets`);
 }
@@ -53,4 +61,8 @@ export function deleteAsset(siteKey: string, id: string): Promise<void> {
 
 export function migrateLegacyAssets(siteKey: string): Promise<AssetMigrationResult> {
   return api<AssetMigrationResult>(`/api/sites/${siteKey}/assets/migrate-legacy`, { method: "POST" });
+}
+
+export function convertAssetToWebp(siteKey: string, id: string): Promise<AssetWebpConversionResult> {
+  return api<AssetWebpConversionResult>(`/api/sites/${siteKey}/assets/${id}/convert-webp`, { method: "POST" });
 }

@@ -105,4 +105,15 @@ describe("syncAssets", () => {
 
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("treats a missing site asset directory as an empty sync", async () => {
+    const missingDir = join(dir, "missing-site");
+
+    const result = await syncAssets(app.prisma, missingDir, demoOptions());
+
+    expect(result).toEqual({ scanned: 0, created: 0, already: 0, skipped: 0 });
+    expect(await app.prisma.asset.count()).toBe(0);
+
+    await rm(dir, { recursive: true, force: true });
+  });
 });

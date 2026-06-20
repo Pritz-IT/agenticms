@@ -118,7 +118,26 @@ function normalizeInstallerOrigin(raw: string): string {
   if (INSTALLER_ORIGIN_HOST_BLOCKLIST.test(url.host)) {
     throw new Error("installer origin host contains invalid characters");
   }
+  if (url.protocol === "http:" && !isLocalInstallerHost(url.hostname)) {
+    throw new Error("installer origin must use https for non-local hosts");
+  }
   return url.origin;
+}
+
+function isLocalInstallerHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "127.0.0.1"
+    || normalized === "::1";
+}
+
+function hostnameFromRawHost(rawHost: string): string {
+  try {
+    return new URL(`http://${rawHost}`).hostname;
+  } catch (_err) {
+    return rawHost;
+  }
 }
 
 function installerOriginForRequest(request: { protocol: string; headers: { host?: unknown } }): string {
@@ -131,7 +150,10 @@ function installerOriginForRequest(request: { protocol: string; headers: { host?
     ? request.headers.host
     : `localhost:${config.PORT}`;
   validateRawInstallerHost(host);
-  return normalizeInstallerOrigin(`${request.protocol}://${host}`);
+  const protocol = request.protocol === "http" && !isLocalInstallerHost(hostnameFromRawHost(host))
+    ? "https"
+    : request.protocol;
+  return normalizeInstallerOrigin(`${protocol}://${host}`);
 }
 
 async function walkFiles(root: string, dir = root): Promise<string[]> {

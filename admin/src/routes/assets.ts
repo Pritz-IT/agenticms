@@ -2,12 +2,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import type { Asset, GlobalAsset } from "@prisma/client";
 import { createHash } from "node:crypto";
-import { createWriteStream, promises as fs } from "fs";
+import { promises as fs } from "fs";
 import path from "path";
-import { pipeline } from "stream/promises";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
 import { migrateLegacyAssetsForSite } from "../services/asset-migration.js";
+import { prepareAssetUpload } from "../services/asset-image-conversion.js";
+import { AssetWebpConversionError, convertExistingAssetToWebp } from "../services/asset-webp-conversion.js";
 import { resolveUploadMime } from "../services/asset-watcher.js";
 import { requireSite, type SiteParams } from "../services/sites.js";
 
@@ -139,6 +140,14 @@ async function sendAssetLibraryForSite(app: FastifyInstance, siteId: string, rep
   ]);
 }
 
+async function readUploadBuffer(stream: AsyncIterable<Buffer | string>): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 async function uploadAssetForSite(
   app: FastifyInstance,
   request: FastifyRequest,
@@ -168,21 +177,36 @@ async function uploadAssetForSite(
     return reply.status(415).send({ error: "Unsupported file type" });
   }
 
-  const sanitizedName = data.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  const originalBuffer = await readUploadBuffer(data.file);
+  let preparedUpload: Awaited<ReturnType<typeof prepareAssetUpload>>;
+  try {
+    preparedUpload = await prepareAssetUpload({
+      filename: data.filename,
+      mimeType,
+      buffer: originalBuffer,
+    });
+  } catch (err) {
+    request.log.warn(
+      { op: "asset.upload", err, filename: data.filename, siteKey: site.key },
+      "asset.upload rejected — invalid raster image"
+    );
+    return reply.status(415).send({ error: "Invalid image upload" });
+  }
+
+  const sanitizedName = preparedUpload.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
   const storedName = `${uuidv4()}-${sanitizedName}`;
   const siteAssetsDir = path.join(config.ASSETS_DIR, site.key);
 
   await fs.mkdir(siteAssetsDir, { recursive: true });
 
   const destPath = path.join(siteAssetsDir, storedName);
-  const writeStream = createWriteStream(destPath);
-  await pipeline(data.file, writeStream);
+  await fs.writeFile(destPath, preparedUpload.buffer);
 
   const asset = await app.prisma.asset.create({
     data: {
       siteId: site.id,
-      filename: data.filename,
-      mimeType,
+      filename: preparedUpload.filename,
+      mimeType: preparedUpload.mimeType,
       filePath: `/assets/${site.key}/${storedName}`,
       uploadedBy: request.user!.email,
     },
@@ -206,6 +230,28 @@ async function deleteAssetForSite(app: FastifyInstance, request: FastifyRequest,
 
   await app.prisma.asset.delete({ where: { id } });
   return reply.send({ ok: true });
+}
+
+async function convertAssetToWebpForSite(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  site: { id: string; key: string },
+  id: string,
+) {
+  try {
+    const result = await convertExistingAssetToWebp(app.prisma, config.ASSETS_DIR, site, id);
+    return reply.send(result);
+  } catch (err) {
+    if (err instanceof AssetWebpConversionError) {
+      request.log.warn(
+        { op: "asset.convertWebp", err, assetId: id, siteKey: site.key },
+        "asset.convertWebp rejected"
+      );
+      return reply.status(err.statusCode).send({ error: err.message });
+    }
+    throw err;
+  }
 }
 
 export default async function assetsRoutes(app: FastifyInstance) {
@@ -255,6 +301,11 @@ export async function registerSiteAssetsRoutes(app: FastifyInstance) {
   app.post<{ Params: SiteParams }>("/:siteKey/assets", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
     return uploadAssetForSite(app, request, reply, site);
+  });
+
+  app.post<{ Params: SiteParams & { id: string } }>("/:siteKey/assets/:id/convert-webp", async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    return convertAssetToWebpForSite(app, request, reply, site, request.params.id);
   });
 
   app.delete<{ Params: SiteParams & { id: string } }>("/:siteKey/assets/:id", async (request, reply) => {
