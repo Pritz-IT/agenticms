@@ -53,6 +53,10 @@ jobs:
         working-directory: admin
         run: |
           npm ci
+          # The admin Vitest run also executes the React tests under
+          # admin/frontend (they import react/lucide-react), so those deps
+          # must be installed before `npm test`.
+          npm ci --prefix frontend
           npm run db:generate
           npm run build:tsc
           npm test
