@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { PrismaClient, User } from "@prisma/client";
 
-export const CLI_SCOPES = ["layouts:write", "assets:write", "builds:write", "status:read", "sites:write"] as const;
+export const CLI_SCOPES = ["layouts:write", "assets:write", "builds:write", "status:read", "sites:write", "pages:write"] as const;
 export type CliScope = (typeof CLI_SCOPES)[number];
 
 const DEVICE_TTL_MS = 10 * 60 * 1000;

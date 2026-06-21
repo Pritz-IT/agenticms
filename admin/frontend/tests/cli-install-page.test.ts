@@ -22,6 +22,8 @@ describe("CLI install page helpers", () => {
     expect(cliUsageCommands("http://localhost:3001", "demo")).toEqual([
       "agenticms login http://localhost:3001",
       "agenticms status --site demo --url http://localhost:3001",
+      "agenticms page list --site demo --url http://localhost:3001",
+      "agenticms page create --site demo --url http://localhost:3001 --path /new-page --layout path/to/Layout.tsx --draft",
       "agenticms diff layouts --site demo --url http://localhost:3001",
       "agenticms sync layouts --site demo --url http://localhost:3001",
       "agenticms sync assets --site demo --url http://localhost:3001",
@@ -36,6 +38,8 @@ describe("CLI install page helpers", () => {
     expect(instructions).toContain("You are working with AgentiCMS through the local CLI.");
     expect(instructions).toContain("agenticms login https://cms.example.com");
     expect(instructions).toContain("agenticms status --site demo --url https://cms.example.com");
+    expect(instructions).toContain("agenticms page list --site demo --url https://cms.example.com");
+    expect(instructions).toContain("agenticms page create --site demo --url https://cms.example.com --path /new-page --layout path/to/Layout.tsx --draft");
     expect(instructions).toContain("agenticms diff layouts --site demo --url https://cms.example.com");
     expect(instructions).toContain("agenticms sync layouts --site demo --url https://cms.example.com");
     expect(instructions).toContain("Never trigger production builds or deploys without explicit user approval.");

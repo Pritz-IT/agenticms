@@ -15,7 +15,7 @@ import {
 } from "../services/cli-sync.js";
 import { admitBuild, BuildQueueAdmissionError, triggerBuild } from "../services/build.service.js";
 import { requireSite, type SiteParams } from "../services/sites.js";
-import { extname, join, resolve, sep } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { readdir, rm } from "node:fs/promises";
 import { config } from "../config.js";
 import { handleFile } from "../services/layout-watcher.js";
@@ -23,6 +23,13 @@ import { createSite, type CreateSiteInput } from "../services/site-management.js
 import { syncGlobalLayoutBatch } from "../services/global-layout-templates.js";
 import { GlobalAssetValidationError, syncGlobalAssetBatch } from "../services/global-assets.js";
 import { cliInstallerScriptWithEtag, getCliArchive } from "../services/cli-installer.js";
+import {
+  createPageForSite,
+  findPageForSite,
+  updatePageForSite,
+  type CreatePageBody,
+  type UpdatePageBody,
+} from "./pages.js";
 
 const DEFAULT_SITE_KEY = "demo";
 const TEXT_LAYOUT_EXTENSIONS = new Set([".tsx", ".ts"]);
@@ -49,6 +56,14 @@ interface AssetSyncBody {
 
 interface BuildBody {
   target?: "staging" | "production";
+}
+
+interface CliCreatePageBody extends Omit<CreatePageBody, "layoutId"> {
+  layout?: string | null;
+}
+
+interface CliUpdatePageBody extends Omit<UpdatePageBody, "layoutId"> {
+  layout?: string | null;
 }
 
 const cliDeviceRateLimit = {
@@ -89,6 +104,27 @@ function pathWithinRoot(root: string, relPath: string): string {
     throw new Error(`path escapes target root: ${relPath}`);
   }
   return fullPath;
+}
+
+async function resolveCliLayoutId(app: FastifyInstance, siteId: string, layout: string | null | undefined): Promise<string | null | undefined> {
+  if (layout === undefined) return undefined;
+  if (layout === null || layout.trim() === "") return null;
+
+  const layouts = await app.prisma.layout.findMany({ where: { siteId } });
+  const matches = layouts.filter((candidate) =>
+    candidate.filePath === layout
+    || candidate.name === layout
+    || basename(candidate.filePath) === layout
+  );
+
+  if (matches.length === 0) {
+    throw new Error(`Layout not found for this site: ${layout}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`Layout is ambiguous for this site: ${layout}`);
+  }
+
+  return matches[0].id;
 }
 
 function hasMatchingEtag(ifNoneMatch: unknown, etag: string): boolean {
@@ -517,6 +553,69 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
   app.get<{ Params: SiteParams }>("/:siteKey/cli/status", { preHandler: app.authenticateCli("status:read") }, async (request, reply) => {
     return sendCliStatus(app, request.params.siteKey, request.user, reply);
   });
+
+  app.get<{ Params: SiteParams }>("/:siteKey/cli/pages", { preHandler: app.authenticateCli("pages:write") }, async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    const pages = await app.prisma.page.findMany({
+      where: { siteId: site.id },
+      orderBy: { sortOrder: "asc" },
+      include: { layout: true },
+    });
+    return reply.send(pages);
+  });
+
+  app.post<{ Params: SiteParams; Body: CliCreatePageBody }>(
+    "/:siteKey/cli/pages",
+    { preHandler: app.authenticateCli("pages:write") },
+    async (request, reply) => {
+      const site = await requireSite(app, request.params.siteKey);
+      let layoutId: string | null | undefined;
+      try {
+        layoutId = await resolveCliLayoutId(app, site.id, request.body?.layout);
+      } catch (err) {
+        return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+      return createPageForSite(app, site.id, {
+        path: request.body?.path,
+        ...(layoutId !== undefined && { layoutId: layoutId ?? undefined }),
+        sortOrder: request.body?.sortOrder,
+        isPublished: request.body?.isPublished,
+      }, reply, request);
+    }
+  );
+
+  app.patch<{ Params: SiteParams & { id: string }; Body: CliUpdatePageBody }>(
+    "/:siteKey/cli/pages/:id",
+    { preHandler: app.authenticateCli("pages:write") },
+    async (request, reply) => {
+      const site = await requireSite(app, request.params.siteKey);
+      let layoutId: string | null | undefined;
+      try {
+        layoutId = await resolveCliLayoutId(app, site.id, request.body?.layout);
+      } catch (err) {
+        return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+      return updatePageForSite(app, site.id, request.params.id, {
+        ...(request.body?.path !== undefined && { path: request.body.path }),
+        ...(layoutId !== undefined && { layoutId }),
+        ...(request.body?.sortOrder !== undefined && { sortOrder: request.body.sortOrder }),
+        ...(request.body?.isPublished !== undefined && { isPublished: request.body.isPublished }),
+      }, reply, request);
+    }
+  );
+
+  app.delete<{ Params: SiteParams & { id: string } }>(
+    "/:siteKey/cli/pages/:id",
+    { preHandler: app.authenticateCli("pages:write") },
+    async (request, reply) => {
+      const site = await requireSite(app, request.params.siteKey);
+      const existing = await findPageForSite(app, site.id, request.params.id);
+      if (!existing) return reply.status(404).send({ error: "Page not found" });
+
+      await app.prisma.page.delete({ where: { id: request.params.id } });
+      return reply.send({ ok: true });
+    }
+  );
 
   app.get<{ Params: SiteParams }>("/:siteKey/cli/export/layouts", { preHandler: app.authenticateCli("layouts:write") }, async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);

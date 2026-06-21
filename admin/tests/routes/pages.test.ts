@@ -171,6 +171,25 @@ describe("POST /api/pages", () => {
     expect(res.json()).toMatchObject({ error: "A page with this path already exists" });
   });
 
+  it("canonicalizes the path and rejects an equivalent duplicate", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { authorization: `Bearer ${editorToken}` },
+      payload: { path: "about/" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ path: "/about" });
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { authorization: `Bearer ${editorToken}` },
+      payload: { path: "/about" },
+    });
+    expect(duplicate.statusCode).toBe(409);
+  });
+
   it("returns 401 without auth", async () => {
     const res = await app.inject({
       method: "POST",

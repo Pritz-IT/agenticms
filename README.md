@@ -91,12 +91,14 @@ docker compose config
 
 ## CLI Workflow
 
-The CLI is the intended way for humans and agents to work on layout and asset
-files without SSHing into a server:
+The CLI is the intended way for humans and agents to work on pages, layouts,
+and asset files without SSHing into a server:
 
 ```bash
 agenticms login https://cms.example.com
 agenticms status --site demo --url https://cms.example.com
+agenticms page list --site demo --url https://cms.example.com
+agenticms page create --site demo --url https://cms.example.com --path /new-page --layout path/to/Layout.tsx --draft
 agenticms sync layouts --site demo
 agenticms sync assets --site demo
 ```
