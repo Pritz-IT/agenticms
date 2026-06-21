@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { createTestUser } from "../helpers/auth.js";
@@ -237,6 +237,22 @@ describe("site CLI page management", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatch(/not found/i);
+  });
+
+  it("lets unexpected service errors surface as 500 instead of masking them as 400", async () => {
+    // The page service call sits outside the layout-resolution 400 catch, so a
+    // genuine failure must propagate to Fastify (500), not be echoed as a 400.
+    const spy = vi.spyOn(app.prisma.page, "findUnique").mockRejectedValueOnce(new Error("boom"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/sites/demo/cli/pages",
+      headers: cliHeaders(),
+      payload: { path: "/boom" },
+    });
+
+    spy.mockRestore();
+    expect(res.statusCode).toBe(500);
   });
 
   it("requires the pages:write scope", async () => {

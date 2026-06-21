@@ -2,6 +2,22 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { FastifyInstance } from "fastify";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
+import { canonicalizePagePath } from "../../src/routes/pages.js";
+
+describe("canonicalizePagePath", () => {
+  it("normalizes leading/trailing/duplicate slashes and maps blank input to root", () => {
+    expect(canonicalizePagePath("/")).toBe("/");
+    expect(canonicalizePagePath("")).toBe("/");
+    expect(canonicalizePagePath("   ")).toBe("/");
+    expect(canonicalizePagePath("///")).toBe("/");
+    expect(canonicalizePagePath("about")).toBe("/about");
+    expect(canonicalizePagePath("/about")).toBe("/about");
+    expect(canonicalizePagePath("/about/")).toBe("/about");
+    expect(canonicalizePagePath("//about//")).toBe("/about");
+    expect(canonicalizePagePath("/a//b/")).toBe("/a/b");
+    expect(canonicalizePagePath("  /a/b/  ")).toBe("/a/b");
+  });
+});
 
 let app: FastifyInstance;
 let editorToken: string;
