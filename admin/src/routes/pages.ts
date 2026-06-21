@@ -9,14 +9,30 @@ function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKn
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
-interface CreatePageBody {
+/**
+ * Normalize a page path to its canonical stored form: a single leading slash,
+ * no trailing slash, and no duplicate slashes. The site root is "/".
+ *
+ * The website build strips the leading slash when generating routes
+ * (see website/src/pages/[...slug].astro), so "about", "/about" and "/about/"
+ * all resolve to the same public route. Without canonicalization they each pass
+ * the exact-string uniqueness check and produce colliding routes. Existing data
+ * is already stored in this form, so canonicalization is idempotent for it.
+ */
+export function canonicalizePagePath(rawPath: string): string {
+  const stripped = rawPath.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  if (stripped === "") return "/";
+  return "/" + stripped.replace(/\/{2,}/g, "/");
+}
+
+export interface CreatePageBody {
   path: string;
   layoutId?: string;
   sortOrder?: number;
   isPublished?: boolean;
 }
 
-interface UpdatePageBody {
+export interface UpdatePageBody {
   path?: string;
   layoutId?: string | null;
   sortOrder?: number;
@@ -27,19 +43,19 @@ async function getDefaultSiteId(app: FastifyInstance): Promise<string> {
   return (await requireSite(app, DEFAULT_SITE_KEY)).id;
 }
 
-async function findPageForSite(app: FastifyInstance, siteId: string, id: string) {
+export async function findPageForSite(app: FastifyInstance, siteId: string, id: string) {
   return app.prisma.page.findFirst({
     where: { id, siteId },
   });
 }
 
-async function validateLayoutForSite(app: FastifyInstance, siteId: string, layoutId: string) {
+export async function validateLayoutForSite(app: FastifyInstance, siteId: string, layoutId: string) {
   return app.prisma.layout.findFirst({
     where: { id: layoutId, siteId },
   });
 }
 
-async function createPageForSite(
+export async function createPageForSite(
   app: FastifyInstance,
   siteId: string,
   body: CreatePageBody,
@@ -48,13 +64,15 @@ async function createPageForSite(
 ) {
   const { path, layoutId, sortOrder = 0, isPublished = false } = body ?? {};
 
-  if (!path) {
+  if (!path || path.trim() === "") {
     return reply.status(400).send({ error: "path is required" });
   }
 
-  request.log.info({ op: "page.create", siteId, path, layoutId: layoutId ?? null }, "page.create requested");
+  const canonicalPath = canonicalizePagePath(path);
 
-  const existing = await app.prisma.page.findUnique({ where: { siteId_path: { siteId, path } } });
+  request.log.info({ op: "page.create", siteId, path: canonicalPath, layoutId: layoutId ?? null }, "page.create requested");
+
+  const existing = await app.prisma.page.findUnique({ where: { siteId_path: { siteId, path: canonicalPath } } });
   if (existing) {
     return reply.status(409).send({ error: "A page with this path already exists" });
   }
@@ -69,7 +87,7 @@ async function createPageForSite(
   try {
     const page = await app.prisma.$transaction(async (tx) => {
       const createdPage = await tx.page.create({
-        data: { siteId, path, layoutId, sortOrder, isPublished },
+        data: { siteId, path: canonicalPath, layoutId, sortOrder, isPublished },
         include: { layout: true },
       });
 
@@ -113,7 +131,7 @@ async function createPageForSite(
   }
 }
 
-async function updatePageForSite(
+export async function updatePageForSite(
   app: FastifyInstance,
   siteId: string,
   id: string,
@@ -121,8 +139,17 @@ async function updatePageForSite(
   reply: FastifyReply,
   request: FastifyRequest
 ) {
-  request.log.info({ op: "page.update", siteId, pageId: id }, "page.update requested");
   const { path, layoutId, sortOrder, isPublished } = body ?? {};
+
+  let canonicalPath: string | undefined;
+  if (path !== undefined) {
+    if (path.trim() === "") {
+      return reply.status(400).send({ error: "path cannot be empty" });
+    }
+    canonicalPath = canonicalizePagePath(path);
+  }
+
+  request.log.info({ op: "page.update", siteId, pageId: id }, "page.update requested");
 
   const existing = await findPageForSite(app, siteId, id);
   if (!existing) {
@@ -141,7 +168,7 @@ async function updatePageForSite(
     const page = await app.prisma.page.update({
       where: { id },
       data: {
-        ...(path !== undefined && { path }),
+        ...(canonicalPath !== undefined && { path: canonicalPath }),
         ...(layoutId !== undefined && { layoutId }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isPublished !== undefined && { isPublished }),

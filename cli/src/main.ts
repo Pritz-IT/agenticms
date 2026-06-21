@@ -7,6 +7,15 @@ import { triggerBuild } from "./build.js";
 import { diffLayouts, pullLayouts } from "./layout-pull.js";
 import { createSite, parseCreateSiteArgs } from "./sites.js";
 import { migrateAssets } from "./migrate.js";
+import {
+  createPage,
+  deletePage,
+  listPages,
+  parsePageCreateArgs,
+  parsePageDeleteArgs,
+  parsePageUpdateArgs,
+  updatePage,
+} from "./pages.js";
 
 interface ParsedArgs {
   args: string[];
@@ -59,6 +68,10 @@ function usage(): string {
     "  agenticms diff layouts [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms pull layouts [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms site create --key <key> --name <name> --domain <host> --staging-domain <host> --default-locale <locale> [--site-url <url>] [--url <admin-url>]",
+    "  agenticms page list [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms page create --path <path> [--layout <layout>] [--sort-order <n>] [--published|--draft] [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms page update --id <id> [--path <path>] [--layout <layout>] [--sort-order <n>] [--published|--draft] [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms page delete --id <id> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms build <staging|production> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms logout [--url <admin-url>] [--revoke]",
   ].join("\n");
@@ -118,6 +131,16 @@ async function run(): Promise<void> {
   if (command === "site") {
     if (subcommand !== "create") throw new Error("site requires subcommand: create");
     await createSite(parsed.adminUrl, parseCreateSiteArgs(parsed.args.slice(2)));
+    return;
+  }
+
+  if (command === "page") {
+    const pageArgs = parsed.args.slice(2);
+    if (subcommand === "list") await listPages(parsed.adminUrl, parsed.projectRoot, parsed.site);
+    else if (subcommand === "create") await createPage(parsed.adminUrl, parsed.projectRoot, parsed.site, parsePageCreateArgs(pageArgs));
+    else if (subcommand === "update") await updatePage(parsed.adminUrl, parsed.projectRoot, parsed.site, parsePageUpdateArgs(pageArgs));
+    else if (subcommand === "delete") await deletePage(parsed.adminUrl, parsed.projectRoot, parsed.site, parsePageDeleteArgs(pageArgs).id);
+    else throw new Error("page requires subcommand: list, create, update, or delete");
     return;
   }
 

@@ -17,6 +17,8 @@ export function cliUsageCommands(adminOrigin: string, siteKey: string): string[]
   return [
     `agenticms login ${adminOrigin}`,
     `agenticms status --site ${siteKey} --url ${adminOrigin}`,
+    `agenticms page list --site ${siteKey} --url ${adminOrigin}`,
+    `agenticms page create --site ${siteKey} --url ${adminOrigin} --path /new-page --layout path/to/Layout.tsx --draft`,
     `agenticms diff layouts --site ${siteKey} --url ${adminOrigin}`,
     `agenticms sync layouts --site ${siteKey} --url ${adminOrigin}`,
     `agenticms sync assets --site ${siteKey} --url ${adminOrigin}`,
@@ -31,12 +33,14 @@ export function aiAgentInstructions(adminOrigin: string, siteKey: string): strin
     "1. Install the CLI from this site's admin panel if it is not installed.",
     `2. Authenticate with: agenticms login ${adminOrigin}`,
     `3. Check access before changing files: agenticms status --site ${siteKey} --url ${adminOrigin}`,
-    `4. Inspect layout drift before edits: agenticms diff layouts --site ${siteKey} --url ${adminOrigin}`,
-    `5. Sync layout changes only when the user asks: agenticms sync layouts --site ${siteKey} --url ${adminOrigin}`,
-    `6. Sync assets only when needed: agenticms sync assets --site ${siteKey} --url ${adminOrigin}`,
-    "7. Never trigger production builds or deploys without explicit user approval.",
-    "8. Do not assume Git is the source of truth here; layout files and assets are the working surface.",
-    "9. Prefer focused layout, CSS, and asset edits. Verify through the admin preview before syncing.",
+    `4. List pages before creating or changing them: agenticms page list --site ${siteKey} --url ${adminOrigin}`,
+    `5. Create pages only when requested: agenticms page create --site ${siteKey} --url ${adminOrigin} --path /new-page --layout path/to/Layout.tsx --draft`,
+    `6. Inspect layout drift before edits: agenticms diff layouts --site ${siteKey} --url ${adminOrigin}`,
+    `7. Sync layout changes only when the user asks: agenticms sync layouts --site ${siteKey} --url ${adminOrigin}`,
+    `8. Sync assets only when needed: agenticms sync assets --site ${siteKey} --url ${adminOrigin}`,
+    "9. Never trigger production builds or deploys without explicit user approval.",
+    "10. Do not assume Git is the source of truth here; layout files, assets, and pages are the working surface.",
+    "11. Prefer focused page, layout, CSS, and asset edits. Verify through the admin preview before syncing.",
   ].join("\n");
 }
 

@@ -2,6 +2,22 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { FastifyInstance } from "fastify";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
+import { canonicalizePagePath } from "../../src/routes/pages.js";
+
+describe("canonicalizePagePath", () => {
+  it("normalizes leading/trailing/duplicate slashes and maps blank input to root", () => {
+    expect(canonicalizePagePath("/")).toBe("/");
+    expect(canonicalizePagePath("")).toBe("/");
+    expect(canonicalizePagePath("   ")).toBe("/");
+    expect(canonicalizePagePath("///")).toBe("/");
+    expect(canonicalizePagePath("about")).toBe("/about");
+    expect(canonicalizePagePath("/about")).toBe("/about");
+    expect(canonicalizePagePath("/about/")).toBe("/about");
+    expect(canonicalizePagePath("//about//")).toBe("/about");
+    expect(canonicalizePagePath("/a//b/")).toBe("/a/b");
+    expect(canonicalizePagePath("  /a/b/  ")).toBe("/a/b");
+  });
+});
 
 let app: FastifyInstance;
 let editorToken: string;
@@ -169,6 +185,25 @@ describe("POST /api/pages", () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ error: "A page with this path already exists" });
+  });
+
+  it("canonicalizes the path and rejects an equivalent duplicate", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { authorization: `Bearer ${editorToken}` },
+      payload: { path: "about/" },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ path: "/about" });
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { authorization: `Bearer ${editorToken}` },
+      payload: { path: "/about" },
+    });
+    expect(duplicate.statusCode).toBe(409);
   });
 
   it("returns 401 without auth", async () => {

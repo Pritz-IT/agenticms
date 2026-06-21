@@ -26,6 +26,8 @@ Run commands from the package directory shown:
 - `cd cli && node dist/main.js login <admin-url>`: start admin-approved CLI login.
 - `cd cli && node dist/main.js site create --key demo --name "Demo" --domain demo.example.com --staging-domain staging-demo.example.com --default-locale de`: create a site via the approved CLI token.
 - `cd cli && node dist/main.js status --site demo --url <admin-url>`: check one site.
+- `cd cli && node dist/main.js page list --site demo --url <admin-url>`: list pages for a site.
+- `cd cli && node dist/main.js page create --site demo --url <admin-url> --path /new-page --layout path/to/Layout.tsx --draft`: create a draft page using a layout path/name.
 - `cd cli && node dist/main.js sync layouts --site demo`: sync selected site layouts.
 - `site.json` stores the default site and optional per-site local roots. Legacy `.agenticms/site.json` is still supported for older workspaces.
 - `cd website && npm run dev`: start Astro locally.
