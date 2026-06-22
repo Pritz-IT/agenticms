@@ -1,26 +1,25 @@
 name: Publish images
 
-# Builds and pushes the admin and website container images to GHCR.
+# Builds and pushes the admin and website container images to GHCR, multi-arch
+# (amd64 + arm64) for the ARM64 Raspberry Pi runtime.
 #
 # Triggers:
 #   - push tag N.N.N          -> :N.N.N + :N.N + :latest + :sha-<short>
 #   - manual (workflow_dispatch) -> :sha-<short> only (no semver/latest move)
 #
-# Image builds are release-only: nothing is published on a plain main merge,
-# only when a version tag is pushed.
+# Release-only: a plain main merge publishes nothing.
 #
-# Images (public — first push creates them private; flip visibility once in
-# Settings -> Packages, then they stay public):
-#   ghcr.io/pritz-it/agenticms-admin
-#   ghcr.io/pritz-it/agenticms-website
+# Architecture (why this is shaped as build -> merge):
+#   Each arch is built on its OWN NATIVE runner — amd64 on ubuntu-latest, arm64
+#   on ubuntu-24.04-arm (free for public repos) — so there is NO QEMU emulation
+#   (an emulated arm64 admin build took >1h; native takes minutes). The build
+#   job pushes each arch by digest; the merge job assembles one multi-arch
+#   manifest from those digests and applies the human tags.
 #
-# Both images are built multi-arch (amd64 + arm64) because the live CMS runs on
-# an ARM64 Raspberry Pi. arm64 is emulated via QEMU and is the slow part.
-#
-# NOTE: This org restricts Actions to GitHub-owned / Pritz-IT-owned only, so the
-# usual docker/* marketplace actions are NOT allowed. Everything below is driven
-# with the docker buildx CLI (preinstalled on ubuntu-latest) plus the only
-# third-party action permitted — actions/checkout, which is GitHub-owned.
+# Org policy: only GitHub-owned / Pritz-IT-owned actions are allowed, so the
+# docker/* marketplace actions are NOT used — everything is the buildx CLI
+# (preinstalled on the runners) plus actions/{checkout,upload-artifact,
+# download-artifact}, which are GitHub-owned.
 
 on:
   push:
@@ -36,8 +35,9 @@ env:
   OWNER: pritz-it
 
 jobs:
+  # ── Per-arch build, pushed by digest (no tags yet) ────────────────────────
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -45,18 +45,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: agenticms-admin
-            context: .
-            dockerfile: admin/Dockerfile
-          - image: agenticms-website
-            context: ./website
-            dockerfile: ./website/Dockerfile
+          - { image: agenticms-admin,   context: ".",         dockerfile: admin/Dockerfile,         platform: linux/amd64, arch: amd64, runner: ubuntu-latest }
+          - { image: agenticms-admin,   context: ".",         dockerfile: admin/Dockerfile,         platform: linux/arm64, arch: arm64, runner: ubuntu-24.04-arm }
+          - { image: agenticms-website, context: "./website", dockerfile: ./website/Dockerfile,      platform: linux/amd64, arch: amd64, runner: ubuntu-latest }
+          - { image: agenticms-website, context: "./website", dockerfile: ./website/Dockerfile,      platform: linux/arm64, arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Enable arm64 emulation (binfmt)
-        run: docker run --privileged --rm tonistiigi/binfmt --install all
+        uses: actions/checkout@v5
 
       - name: Create buildx builder
         run: docker buildx create --use --name agenticms --driver docker-container
@@ -66,47 +61,101 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         env:
           MATRIX_IMAGE: ${{ matrix.image }}
           CONTEXT: ${{ matrix.context }}
           DOCKERFILE: ${{ matrix.dockerfile }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${OWNER}/${MATRIX_IMAGE}"
+
+          # Native single-arch build (no QEMU). Push by digest so no per-arch
+          # tags clutter the registry; the merge job stitches the manifest.
+          docker buildx build \
+            --platform "${PLATFORM}" \
+            --cache-from "type=registry,ref=${IMAGE}:buildcache-${ARCH}" \
+            --cache-to "type=registry,ref=${IMAGE}:buildcache-${ARCH},mode=max" \
+            --provenance=false \
+            --output "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file metadata.json \
+            -f "${DOCKERFILE}" \
+            "${CONTEXT}"
+
+          DIGEST="$(jq -r '."containerimage.digest"' metadata.json)"
+          echo "Built ${IMAGE}@${DIGEST} for ${PLATFORM}"
+          mkdir -p "digests"
+          # Filename = bare digest; the merge job reads these back.
+          touch "digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Assemble the multi-arch manifest from the per-arch digests ────────────
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [agenticms-admin, agenticms-website]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: digests
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Create and push manifest
+        env:
+          MATRIX_IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
           IMAGE="${REGISTRY}/${OWNER}/${MATRIX_IMAGE}"
           SHORT_SHA="${GITHUB_SHA::7}"
 
-          # Always publish an immutable sha tag.
+          # Tags: immutable sha always; on a version tag add semver/minor/latest.
           TAG_ARGS=(-t "${IMAGE}:sha-${SHORT_SHA}")
-
-          # On a version tag, add semver + minor + latest (mirrors the previous
-          # metadata-action behaviour). A manual dispatch on a branch gets only
-          # the sha tag, so it can never move :latest.
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME}"
             MINOR="$(echo "$VERSION" | cut -d. -f1,2)"
             TAG_ARGS+=(-t "${IMAGE}:${VERSION}" -t "${IMAGE}:${MINOR}" -t "${IMAGE}:latest")
           fi
 
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --push \
-            "${TAG_ARGS[@]}" \
-            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
-            --cache-from "type=registry,ref=${IMAGE}:buildcache" \
-            --cache-to "type=registry,ref=${IMAGE}:buildcache,mode=max" \
-            --provenance=false \
-            -f "${DOCKERFILE}" \
-            "${CONTEXT}"
+          # Source refs = the per-arch digests pushed by the build job.
+          SOURCES=()
+          for f in digests/*; do
+            SOURCES+=("${IMAGE}@sha256:$(basename "$f")")
+          done
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${SOURCES[@]}"
+          docker buildx imagetools inspect "${IMAGE}:sha-${SHORT_SHA}"
 
 # ── Notes ───────────────────────────────────────────────────────────────────
-# • First push creates each GHCR package PRIVATE. Flip to public once in
-#   github.com/orgs/Pritz-IT/packages -> <pkg> -> Package settings. The
-#   org.opencontainers.image.source label links the package to this repo.
-# • Build cache lives as a `:buildcache` tag on each GHCR image (registry cache,
-#   works with the docker login above — the gha cache backend would need the
+# • First push creates each GHCR package PRIVATE, and the org currently forbids
+#   public packages — enable public packages at
+#   github.com/organizations/Pritz-IT/settings/packages, then flip each package
+#   to public. The org.opencontainers.image.source label links it to this repo.
+# • Per-arch build cache lives as :buildcache-amd64 / :buildcache-arm64 tags on
+#   each GHCR image (registry cache; the gha backend would need the
 #   setup-buildx-action we're not allowed to use).
-# • arm64 under QEMU is the slow leg (admin runs npm ci + prisma generate + tsc
-#   + vite across stages, emulated). If it hurts, add a native arm64 runner to
-#   the matrix or build arm64 on the Pi itself.
+# • ubuntu-24.04-arm is a free GitHub-hosted arm64 runner for public repos. If a
+#   private repo ever needs this, that runner tier is billed — switch arm64 back
+#   to QEMU on ubuntu-latest or a self-hosted Pi runner.
