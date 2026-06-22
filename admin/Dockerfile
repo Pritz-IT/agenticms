@@ -75,7 +75,11 @@ COPY website/package.json     /astro-project/package.json
 COPY website/astro.config.mjs /astro-project/astro.config.mjs
 COPY website/tsconfig.json    /astro-project/tsconfig.json
 COPY website/src              /astro-project/src
-COPY website/public           /astro-project/public
+# public/ is intentionally NOT copied: website/.gitignore ignores the whole
+# /public/ tree, so it is never present in a clean checkout (CI). Its contents
+# are runtime/volatile — the build-runner writes public/assets and the mounted
+# assets volume supplies real assets — so the image only needs the dir to exist.
+RUN mkdir -p /astro-project/public
 
 RUN mkdir -p /layouts /assets /var/www/builds /var/cache/layout-modules
 ENV CLI_PACKAGE_DIR=/agenticms-cli
