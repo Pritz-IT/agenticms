@@ -49,7 +49,7 @@ __SITE_HOST_MAP__
     # Admin host, proxied instead of serving static site output.
     server {
         listen 80;
-        server_name cms.example.com;
+        server_name __ADMIN_SERVER_NAME__;
         limit_conn perip 20;
 
         location ~ ^/api/auth/ {

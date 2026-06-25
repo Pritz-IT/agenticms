@@ -6,6 +6,13 @@ mkdir -p /var/www/builds /etc/nginx/conf.d
 ADMIN_API_URL="${ADMIN_API_URL:-http://admin:3000}"
 case "$ADMIN_API_URL" in *"|"*) echo "ADMIN_API_URL must not contain '|'"; exit 1;; esac
 
+# Server name for the admin host block. Defaults to the generic example domain;
+# real deployments set ADMIN_SERVER_NAME to their admin domain (e.g.
+# cms.example.com). nginx matches this against the Host header, so a wrong value
+# makes the admin domain fall through to default_server.
+ADMIN_SERVER_NAME="${ADMIN_SERVER_NAME:-cms.example.com}"
+case "$ADMIN_SERVER_NAME" in *"|"*) echo "ADMIN_SERVER_NAME must not contain '|'"; exit 1;; esac
+
 fetch_internal() {
   path="$1"
   if [ -z "${INTERNAL_API_KEY:-}" ]; then
@@ -45,7 +52,8 @@ done
 
 # Render the active nginx config from the baked template. Idempotent across
 # restarts (always regenerated from the pristine template).
-sed "s|__ADMIN_API_URL__|${ADMIN_API_URL}|g" \
+sed -e "s|__ADMIN_API_URL__|${ADMIN_API_URL}|g" \
+    -e "s|__ADMIN_SERVER_NAME__|${ADMIN_SERVER_NAME}|g" \
   /etc/nginx/nginx.conf.template > /tmp/nginx.conf
 awk '
   /__SITE_HOST_MAP__/ {
