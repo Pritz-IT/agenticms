@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CliHttpError, requestJson } from "../src/http";
+import { CliHttpError, parseRetryAfterMs, requestJson } from "../src/http";
 
 describe("requestJson", () => {
   afterEach(() => {
@@ -40,5 +40,37 @@ describe("requestJson", () => {
 
     const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer sfcli_token");
+  });
+
+  it("surfaces Retry-After (seconds) on a 429 as retryAfterMs", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("slow down", { status: 429, headers: { "retry-after": "12" } })
+    );
+
+    await expect(requestJson("https://cms.example.com", "/api/demo")).rejects.toMatchObject({
+      status: 429,
+      retryAfterMs: 12_000,
+    } satisfies Partial<CliHttpError>);
+  });
+});
+
+describe("parseRetryAfterMs", () => {
+  it("parses a delay in seconds", () => {
+    expect(parseRetryAfterMs("30")).toBe(30_000);
+  });
+
+  it("returns undefined when the header is absent", () => {
+    expect(parseRetryAfterMs(null)).toBeUndefined();
+  });
+
+  it("returns undefined for an unparseable value", () => {
+    expect(parseRetryAfterMs("soon")).toBeUndefined();
+  });
+
+  it("parses an HTTP-date relative to now", () => {
+    const tenSecondsOut = new Date(Date.now() + 10_000).toUTCString();
+    const result = parseRetryAfterMs(tenSecondsOut);
+    expect(result).toBeGreaterThan(8_000);
+    expect(result).toBeLessThanOrEqual(10_000);
   });
 });

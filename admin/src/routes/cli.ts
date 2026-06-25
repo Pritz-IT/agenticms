@@ -73,6 +73,27 @@ const cliDeviceRateLimit = {
   },
 };
 
+function cliDeviceTokenRateLimitKey(request: { params: unknown; ip: string }): string {
+  const id = (request.params as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" && id.length > 0
+    ? `cli-device-token:${id}`
+    : `cli-device-token-ip:${request.ip}`;
+}
+
+// The device-token POLL endpoint is secret-gated and idempotent: the CLI polls
+// it for the device challenge's entire ~10-minute lifetime while waiting for
+// browser approval. Keying by deviceId (not IP) makes each login flow its own
+// bucket, and the max is sized to outlast the device TTL even at a fast poll
+// cadence — so a slow-to-approve login can never self-inflict a lockout. The
+// number of buckets is bounded by the IP-keyed create limiter above.
+const cliDeviceTokenRateLimit = {
+  rateLimit: {
+    max: 360,
+    timeWindow: "10 minutes",
+    keyGenerator: cliDeviceTokenRateLimitKey,
+  },
+};
+
 function cliBuildRateLimitKey(request: { headers: Record<string, unknown>; ip: string }): string {
   const auth = request.headers["authorization"];
   const token = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -407,7 +428,7 @@ export default async function cliRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string }; Body: TokenBody }>(
     "/device/:id/token",
-    { config: cliDeviceRateLimit },
+    { config: cliDeviceTokenRateLimit },
     async (request, reply) => {
       if (!request.body?.deviceSecret) {
         return reply.status(400).send({ error: "deviceSecret is required" });

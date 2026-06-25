@@ -115,12 +115,12 @@ assert.ok(
 );
 
 const adminServerBlocks = blocksFor("server {").filter((block) =>
-  block.includes("server_name cms.example.com;")
+  block.includes("server_name __ADMIN_SERVER_NAME__;")
 );
 assert.equal(
   adminServerBlocks.length,
   1,
-  "nginx must define exactly one cms.example.com admin server block"
+  "nginx must define exactly one admin server block keyed on the __ADMIN_SERVER_NAME__ placeholder (substituted from $ADMIN_SERVER_NAME at startup)"
 );
 assert.match(
   adminServerBlocks[0],

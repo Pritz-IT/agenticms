@@ -3,11 +3,33 @@ import type { StoredCredential } from "./config.js";
 export class CliHttpError extends Error {
   constructor(
     public readonly status: number,
-    message: string
+    message: string,
+    public readonly retryAfterMs?: number
   ) {
     super(message);
     this.name = "CliHttpError";
   }
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Supports both forms the
+ * spec allows: a delay in seconds (what @fastify/rate-limit emits) or an
+ * HTTP-date. Returns undefined when absent or unparseable.
+ */
+export function parseRetryAfterMs(headerValue: string | null): number | undefined {
+  if (!headerValue) return undefined;
+
+  const seconds = Number(headerValue.trim());
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+
+  const dateMs = Date.parse(headerValue);
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+
+  return undefined;
 }
 
 function apiUrl(adminUrl: string, path: string): string {
@@ -54,7 +76,11 @@ export async function requestJson<T>(
   const text = await response.text();
 
   if (!response.ok) {
-    throw new CliHttpError(response.status, text || response.statusText);
+    throw new CliHttpError(
+      response.status,
+      text || response.statusText,
+      parseRetryAfterMs(response.headers.get("retry-after"))
+    );
   }
 
   return (text ? JSON.parse(text) : undefined) as T;
