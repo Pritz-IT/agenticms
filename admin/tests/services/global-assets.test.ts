@@ -107,13 +107,28 @@ describe("global assets service", () => {
     ])).rejects.toThrow("global asset path");
   });
 
-  it("rejects files above the 10 MB decoded size limit", async () => {
+  it("rejects files above the 25 MB decoded size limit", async () => {
     await expect(syncGlobalAssetBatch(app, [
       {
         path: "shared/oversized.png",
-        base64: Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"),
+        base64: Buffer.alloc(25 * 1024 * 1024 + 1).toString("base64"),
       },
-    ])).rejects.toThrow("10 MB limit");
+    ])).rejects.toThrow("25 MB limit");
+  });
+
+  it("accepts a self-hosted video within the 25 MB per-file limit", async () => {
+    const result = await syncGlobalAssetBatch(app, [
+      {
+        path: "shared/clips/hero.mp4",
+        base64: Buffer.alloc(14 * 1024 * 1024).toString("base64"),
+      },
+    ]);
+    expect(result.files).toEqual([
+      { path: "shared/clips/hero.mp4", status: "registered" },
+    ]);
+    const rows = await app.prisma.globalAsset.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ filename: "hero.mp4", mimeType: "video/mp4" });
   });
 
   it("rejects batches above the 25 MB decoded size limit", async () => {
