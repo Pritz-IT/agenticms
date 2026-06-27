@@ -29,6 +29,12 @@ describe("sanitizeRichTextValue", () => {
     );
   });
 
+  it("keeps sub/sup tags (CO2, registered marks)", () => {
+    expect(sanitizeRichTextValue("<p>CO<sub>2</sub> ORPIT<sup>®</sup></p>")).toBe(
+      "<p>CO<sub>2</sub> ORPIT<sup>®</sup></p>"
+    );
+  });
+
   it("drops javascript: hrefs on anchors but keeps http(s) links with rel=noopener", () => {
     expect(sanitizeRichTextValue('<a href="javascript:alert(1)">x</a>')).not.toContain("javascript:");
     const safe = sanitizeRichTextValue('<a href="https://example.com">x</a>');
