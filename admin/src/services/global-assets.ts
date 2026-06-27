@@ -13,7 +13,9 @@ import {
 } from "./cli-sync.js";
 
 const GLOBAL_ASSET_EXTENSIONS = new Set(Object.keys(MIME_BY_EXT));
-const MAX_GLOBAL_ASSET_FILE_BYTES = 10 * 1024 * 1024;
+// Kept in step with MAX_ASSET_FILE_BYTES (cli-sync.ts): 25 MB accommodates a
+// self-hosted video and stays under the 40 MB CLI route bodyLimit once base64-inflated.
+const MAX_GLOBAL_ASSET_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_GLOBAL_ASSET_BATCH_BYTES = 25 * 1024 * 1024;
 
 type SyncSite = Pick<Site, "id" | "key">;
@@ -162,9 +164,9 @@ export async function syncGlobalAssetBatch(
     const parsed = parseGlobalAssetPath(relPath);
     if (typeof file.base64 !== "string") throw new GlobalAssetValidationError(`base64 must be a string for ${relPath}`);
     const size = Buffer.byteLength(file.base64, "base64");
-    if (size > MAX_GLOBAL_ASSET_FILE_BYTES) throw new GlobalAssetValidationError(`global asset exceeds 10 MB limit: ${relPath}`);
+    if (size > MAX_GLOBAL_ASSET_FILE_BYTES) throw new GlobalAssetValidationError(`global asset exceeds ${MAX_GLOBAL_ASSET_FILE_BYTES / (1024 * 1024)} MB limit: ${relPath}`);
     totalBytes += size;
-    if (totalBytes > MAX_GLOBAL_ASSET_BATCH_BYTES) throw new GlobalAssetValidationError("global asset batch exceeds 25 MB limit");
+    if (totalBytes > MAX_GLOBAL_ASSET_BATCH_BYTES) throw new GlobalAssetValidationError(`global asset batch exceeds ${MAX_GLOBAL_ASSET_BATCH_BYTES / (1024 * 1024)} MB limit`);
 
     const fullPath = await writeBase64FileAtomic(globalAssetsRoot(), relPath, file.base64);
     const sourceHash = await sha256File(fullPath);

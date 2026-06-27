@@ -9,7 +9,10 @@ import { handleFile } from "./layout-watcher.js";
 
 const TEXT_LAYOUT_EXTENSIONS = new Set([".tsx", ".ts"]);
 const ASSET_EXTENSIONS = new Set(Object.keys(MIME_BY_EXT));
-const MAX_ASSET_FILE_BYTES = 10 * 1024 * 1024;
+// 25 MB per file accommodates a self-hosted hero video. base64-inflated (~33 MB)
+// it still fits under the 40 MB CLI asset-route bodyLimit (admin/src/routes/cli.ts)
+// and the 50 MB nginx client_max_body_size.
+const MAX_ASSET_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_ASSET_BATCH_BYTES = 25 * 1024 * 1024;
 const DEFAULT_SITE_KEY = "demo";
 
@@ -224,9 +227,9 @@ export async function syncAssetBatch(
     const relPath = validateRelativePath(file.path, ASSET_EXTENSIONS);
     if (typeof file.base64 !== "string") throw new Error(`base64 must be a string for ${relPath}`);
     const size = Buffer.byteLength(file.base64, "base64");
-    if (size > MAX_ASSET_FILE_BYTES) throw new Error(`asset exceeds 10 MB limit: ${relPath}`);
+    if (size > MAX_ASSET_FILE_BYTES) throw new Error(`asset exceeds ${MAX_ASSET_FILE_BYTES / (1024 * 1024)} MB limit: ${relPath}`);
     totalBytes += size;
-    if (totalBytes > MAX_ASSET_BATCH_BYTES) throw new Error("asset batch exceeds 25 MB limit");
+    if (totalBytes > MAX_ASSET_BATCH_BYTES) throw new Error(`asset batch exceeds ${MAX_ASSET_BATCH_BYTES / (1024 * 1024)} MB limit`);
 
     await writeBase64FileAtomic(root, relPath, file.base64);
     results.push({ path: relPath, status: "written" });

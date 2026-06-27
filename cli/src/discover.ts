@@ -28,6 +28,8 @@ const ASSET_EXTENSIONS = new Set([
   ".woff2",
   ".ttf",
   ".otf",
+  ".mp4",
+  ".webm",
 ]);
 
 async function walk(dir: string): Promise<string[]> {
