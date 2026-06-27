@@ -16,6 +16,12 @@ describe("resolveUploadMime", () => {
     expect(resolveUploadMime("font.ttf")).toBe("font/ttf");
   });
 
+  it("accepts self-hosted video", () => {
+    expect(resolveUploadMime("hero-video.mp4")).toBe("video/mp4");
+    expect(resolveUploadMime("CLIP.MP4")).toBe("video/mp4"); // case-insensitive
+    expect(resolveUploadMime("hero.webm")).toBe("video/webm");
+  });
+
   it("rejects executable/active types that could run same-origin", () => {
     expect(resolveUploadMime("evil.js")).toBeNull();
     expect(resolveUploadMime("evil.mjs")).toBeNull();

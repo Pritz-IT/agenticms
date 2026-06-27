@@ -34,6 +34,8 @@ const MIME_BY_EXT: Record<string, string> = {
   ".woff2": "font/woff2",
   ".ttf":   "font/ttf",
   ".otf":   "font/otf",
+  ".mp4":   "video/mp4",
+  ".webm":  "video/webm",
 };
 
 const ASSETS_DIR = process.env.ASSETS_DIR ?? "./assets";

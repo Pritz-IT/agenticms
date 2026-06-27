@@ -22,6 +22,8 @@ export const MIME_BY_EXT: Record<string, string> = {
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
   ".otf": "font/otf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
 };
 
 // Extensions that must NEVER be accepted via an interactive editor upload even

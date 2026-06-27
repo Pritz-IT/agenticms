@@ -32,6 +32,9 @@ export interface AssetSyncOptions {
   template?: string;
 }
 
+// Soft batching target, not a hard per-request guarantee: a single file larger
+// than this is still sent on its own (chunkAssetFiles only splits a non-empty
+// batch), bounded instead by the 40 MB asset-route bodyLimit on the server.
 const MAX_ASSET_SYNC_BODY_BYTES = 25 * 1024 * 1024;
 const TEMPLATE_KEY_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
