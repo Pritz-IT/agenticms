@@ -14,7 +14,7 @@ interface CreateSubmissionBody {
   ref?: string;
 }
 
-const ALLOWED_FORMS = ["sample-template", "solutions-consultation", "contact"] as const;
+const ALLOWED_FORMS = ["sample-template", "solutions-consultation", "contact", "working-capital", "ai-readiness"] as const;
 const DEFAULT_SITE_KEY = "demo";
 
 function hostFromUrl(value: string): string | null {

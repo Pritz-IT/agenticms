@@ -18,6 +18,12 @@ describe("visual-editor content-safety (preview defence-in-depth)", () => {
     expect(sanitizeRichText('<a href="javascript:alert(1)">x</a>')).not.toContain("javascript:");
   });
 
+  it("sanitizeRichText keeps sub/sup (scientific & legal notation)", () => {
+    expect(sanitizeRichText("<p>CO<sub>2</sub> ORPIT<sup>®</sup></p>")).toBe(
+      "<p>CO<sub>2</sub> ORPIT<sup>®</sup></p>"
+    );
+  });
+
   it("sanitizeRichText tolerates empty/undefined input", () => {
     expect(sanitizeRichText("")).toBe("");
     expect(sanitizeRichText(undefined as unknown as string)).toBe("");

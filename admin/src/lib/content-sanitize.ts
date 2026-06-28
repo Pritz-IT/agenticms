@@ -30,6 +30,8 @@ export const RICH_TEXT_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     "p",
     "pre",
     "strong",
+    "sub",
+    "sup",
     "ul",
   ],
   allowedAttributes: {

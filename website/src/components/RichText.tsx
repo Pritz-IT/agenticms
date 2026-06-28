@@ -17,6 +17,8 @@ export function sanitizeRichText(value: string): string {
       "p",
       "pre",
       "strong",
+      "sub",
+      "sup",
       "ul",
     ],
     allowedAttributes: {
