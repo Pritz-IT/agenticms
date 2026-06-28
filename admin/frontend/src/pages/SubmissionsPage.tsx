@@ -212,6 +212,57 @@ function SubmissionRow({
   );
 }
 
+// Pretty-print an object key as a human label: "company" → "Company",
+// "wantsContact" → "Wants Contact", "data_source" → "Data Source".
+function prettifyKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// Clean key-value view for any flat form payload (contact, working-capital,
+// solutions-consultation, …). Generic over the keys so new forms render too.
+function FlatDataView({
+  data,
+  email,
+}: {
+  data: Record<string, unknown>;
+  email: string | null;
+}) {
+  const entries = Object.entries(data ?? {});
+  return (
+    <dl className="flex flex-col gap-2 text-sm">
+      {email && (
+        <div className="flex gap-4">
+          <dt className="w-40 shrink-0 text-neutral-500">Email</dt>
+          <dd className="flex-1 text-neutral-200 break-words">{email}</dd>
+        </div>
+      )}
+      {entries.length === 0 && !email ? (
+        <p className="text-neutral-500">No data.</p>
+      ) : (
+        entries.map(([key, value]) => (
+          <div key={key} className="flex gap-4">
+            <dt className="w-40 shrink-0 text-neutral-500">{prettifyKey(key)}</dt>
+            <dd className="flex-1 text-neutral-200 whitespace-pre-wrap break-words">
+              {formatValue(value)}
+            </dd>
+          </div>
+        ))
+      )}
+    </dl>
+  );
+}
+
 function SubmissionDetail({
   data,
   email,
@@ -223,12 +274,10 @@ function SubmissionDetail({
   const hasTranscript = Array.isArray(d.responses) && d.responses.length > 0;
 
   if (!hasTranscript) {
-    // Unknown / legacy shape (other forms or pre-transcript rows) — raw view.
-    return (
-      <pre className="text-xs text-neutral-400 whitespace-pre-wrap max-h-64 overflow-auto">
-        {JSON.stringify(data, null, 2)}
-      </pre>
-    );
+    // Flat forms (contact, working-capital, solutions-consultation, …) get a
+    // clean key-value view. Only the quiz (responses[] present) gets the rich
+    // scorecard/transcript layout below.
+    return <FlatDataView data={data} email={email} />;
   }
 
   return (
