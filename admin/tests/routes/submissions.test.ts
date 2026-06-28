@@ -154,6 +154,17 @@ describe("POST /api/submissions", () => {
     expect(res.statusCode).toBe(201);
   });
 
+  it('accepts the ai-readiness quiz form (201)', async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      payload: validBody({ form: "ai-readiness" }),
+    });
+    expect(res.statusCode).toBe(201);
+    const row = await app.prisma.submission.findUnique({ where: { id: res.json().id as string } });
+    expect(row?.form).toBe("ai-readiness");
+  });
+
   it("rejects a foreign Origin (400)", async () => {
     const res = await app.inject({
       method: "POST",
@@ -283,6 +294,30 @@ describe("POST /api/submissions — ref upsert", () => {
     expect(rows[0].email).toBe("lead@firma.ch");
     expect(rows[0].wantsContact).toBe(true);
     expect(rows[0].clientRef).toBe(REF);
+  });
+
+  it("ai-readiness: completion saves anonymously, then same-ref email attaches to it", async () => {
+    // On quiz completion: anonymous score save (no email yet).
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      payload: validBody({ form: "ai-readiness", email: undefined, ref: REF }),
+    });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().attached).toBe(false);
+    // On email submit: attaches the mail to the SAME row (no second row).
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      payload: validBody({ form: "ai-readiness", email: "lead@firma.ch", ref: REF }),
+    });
+    expect(second.statusCode).toBe(201);
+    expect(second.json().attached).toBe(true);
+    const rows = await app.prisma.submission.findMany();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].form).toBe("ai-readiness");
+    expect(rows[0].email).toBe("lead@firma.ch");
+    expect(rows[0].wantsContact).toBe(true);
   });
 
   it("same ref from another site inserts there instead of attaching across sites", async () => {
