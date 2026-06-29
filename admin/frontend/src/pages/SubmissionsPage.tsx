@@ -72,9 +72,12 @@ export function SubmissionsPage() {
   const [formFilter, setFormFilter] = useState<string>("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Fetch the full set once and filter client-side. Deriving the form options
+  // from a server-filtered result collapses them to the selected form, which
+  // hid the filter bar with no way back. The submissions list is small (leads).
   const query = useQuery({
-    queryKey: ["submissions", siteKey, formFilter],
-    queryFn: () => fetchSubmissions(siteKey, formFilter || undefined),
+    queryKey: ["submissions", siteKey],
+    queryFn: () => fetchSubmissions(siteKey),
   });
 
   const deleteMutation = useMutation({
@@ -88,8 +91,13 @@ export function SubmissionsPage() {
     },
   });
 
-  const submissions = query.data ?? [];
-  const forms = [...new Set(submissions.map((s) => s.form))];
+  const allSubmissions = query.data ?? [];
+  // Form options come from the full set so the filter bar is stable regardless
+  // of the active filter; the displayed rows are filtered client-side.
+  const forms = [...new Set(allSubmissions.map((s) => s.form))];
+  const submissions = formFilter
+    ? allSubmissions.filter((s) => s.form === formFilter)
+    : allSubmissions;
 
   return (
     <div className="flex flex-col h-full">
