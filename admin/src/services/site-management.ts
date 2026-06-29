@@ -134,11 +134,19 @@ export function hostMapLines(sites: Pick<Site, "key" | "domain" | "stagingDomain
   const seen = new Set<string>();
 
   for (const site of sites) {
-    const hosts = [
+    const baseHosts = [
       extractHost(site.domain, "domain"),
       extractHost(site.stagingDomain, "stagingDomain"),
       ...(site.siteUrl ? [extractHost(new URL(site.siteUrl).hostname, "siteUrl")] : []),
     ];
+
+    // Also serve the `www.` variant of every host, so visitors who type
+    // `www.<domain>` reach the site directly instead of falling through to the
+    // default site. Hosts that are already `www.`-prefixed are left untouched.
+    // Explicitly configured hosts still win on collision via the `seen` set.
+    const hosts = baseHosts.flatMap((host) =>
+      host.startsWith("www.") ? [host] : [host, `www.${host}`],
+    );
 
     for (const host of hosts) {
       if (seen.has(host)) continue;

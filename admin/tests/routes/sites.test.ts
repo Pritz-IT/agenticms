@@ -280,6 +280,9 @@ describe("generated site runtime map", () => {
     expect(mapRes.body).toContain("example.com demo;");
     expect(mapRes.body).toContain("www.example.com demo;");
     expect(mapRes.body).toContain("agenticms.example.com agenticms;");
+    // Auto `www.` alias: a host with no explicitly-configured www variant still
+    // gets one generated, so www.<domain> reaches the site instead of default.
+    expect(mapRes.body).toContain("www.agenticms.example.com agenticms;");
 
     const keysRes = await app.inject({
       method: "GET",
