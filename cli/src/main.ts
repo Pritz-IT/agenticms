@@ -16,6 +16,7 @@ import {
   parsePageUpdateArgs,
   updatePage,
 } from "./pages.js";
+import { addForm, listForms, parseFormArgs, removeForm } from "./forms.js";
 
 interface ParsedArgs {
   args: string[];
@@ -72,6 +73,9 @@ function usage(): string {
     "  agenticms page create --path <path> [--layout <layout>] [--sort-order <n>] [--published|--draft] [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms page update --id <id> [--path <path>] [--layout <layout>] [--sort-order <n>] [--published|--draft] [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms page delete --id <id> [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms forms list [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms forms add --form <slug> [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms forms remove --form <slug> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms build <staging|production> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms logout [--url <admin-url>] [--revoke]",
   ].join("\n");
@@ -141,6 +145,15 @@ async function run(): Promise<void> {
     else if (subcommand === "update") await updatePage(parsed.adminUrl, parsed.projectRoot, parsed.site, parsePageUpdateArgs(pageArgs));
     else if (subcommand === "delete") await deletePage(parsed.adminUrl, parsed.projectRoot, parsed.site, parsePageDeleteArgs(pageArgs).id);
     else throw new Error("page requires subcommand: list, create, update, or delete");
+    return;
+  }
+
+  if (command === "forms") {
+    const formArgs = parsed.args.slice(2);
+    if (subcommand === "list") await listForms(parsed.adminUrl, parsed.projectRoot, parsed.site);
+    else if (subcommand === "add") await addForm(parsed.adminUrl, parsed.projectRoot, parsed.site, parseFormArgs(formArgs).form);
+    else if (subcommand === "remove") await removeForm(parsed.adminUrl, parsed.projectRoot, parsed.site, parseFormArgs(formArgs).form);
+    else throw new Error("forms requires subcommand: list, add, or remove");
     return;
   }
 
