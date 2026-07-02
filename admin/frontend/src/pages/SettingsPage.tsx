@@ -80,12 +80,12 @@ export function SettingsPage() {
 
   function handleAddForm(e: React.FormEvent) {
     e.preventDefault();
-    const slug = newForm.trim();
-    if (!FORM_SLUG_PATTERN.test(slug)) {
-      toast.error("Use lowercase letters, numbers, and hyphens only");
+    const slug = newForm.trim().toLowerCase();
+    if (!FORM_SLUG_PATTERN.test(slug) || slug.length > 64) {
+      toast.error("Use lowercase letters, numbers, and hyphens (max 64 characters)");
       return;
     }
-    addFormMutation.mutate(slug.toLowerCase());
+    addFormMutation.mutate(slug);
   }
 
   return (
