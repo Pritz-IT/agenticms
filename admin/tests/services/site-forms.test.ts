@@ -44,13 +44,16 @@ describe("add/remove", () => {
     const r = await removeAllowedForm(app, siteId, "contact");
     expect(r.outcome).toBe("removed"); expect(r.forms).toEqual([]);
   });
-  it("enforces the cap atomically under concurrency", async () => {
-    for (let i = 0; i < MAX_ALLOWED_FORMS; i++) await addAllowedForm(app, siteId, `form-${i}`);
+  it("enforces the cap atomically under a real boundary race", async () => {
+    // Fill to MAX-1, then race two adds of DISTINCT new slugs. Atomicity means
+    // exactly one wins ("added") and one is rejected ("limit"); a read-then-check
+    // (TOCTOU) impl would let BOTH in and overshoot to MAX+1.
+    for (let i = 0; i < MAX_ALLOWED_FORMS - 1; i++) await addAllowedForm(app, siteId, `form-${i}`);
     const results = await Promise.all([
-      addAllowedForm(app, siteId, "over-a"),
-      addAllowedForm(app, siteId, "over-b"),
+      addAllowedForm(app, siteId, "race-a"),
+      addAllowedForm(app, siteId, "race-b"),
     ]);
-    expect(results.every((r) => r.outcome === "limit")).toBe(true);
+    expect(results.map((r) => r.outcome).sort()).toEqual(["added", "limit"]);
     expect(await listAllowedForms(app, siteId)).toHaveLength(MAX_ALLOWED_FORMS);
   });
   it("concurrent add + remove of the same slug converge without corruption", async () => {
