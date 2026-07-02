@@ -135,4 +135,21 @@ describe("GET/POST/DELETE /api/sites/:siteKey/forms", () => {
     const res = await app.inject({ method: "POST", url: "/api/sites/demo/cli/forms", headers: { authorization: `Bearer ${token}` }, payload: { form: "contact" } });
     expect(res.statusCode).toBe(403);
   });
+
+  it("CLI GET lists a site's allowed forms (200)", async () => {
+    const demo = await app.prisma.site.findUniqueOrThrow({ where: { key: "demo" } });
+    await app.prisma.site.update({ where: { id: demo.id }, data: { allowedForms: ["contact", "quiz"] } });
+    const token = await issueCliToken(app);
+    const res = await app.inject({ method: "GET", url: "/api/sites/demo/cli/forms", headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ forms: ["contact", "quiz"] });
+  });
+  it("CLI DELETE removes a form and returns the updated array (200)", async () => {
+    const demo = await app.prisma.site.findUniqueOrThrow({ where: { key: "demo" } });
+    await app.prisma.site.update({ where: { id: demo.id }, data: { allowedForms: ["contact", "quiz"] } });
+    const token = await issueCliToken(app);
+    const res = await app.inject({ method: "DELETE", url: "/api/sites/demo/cli/forms/contact", headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ forms: ["quiz"] });
+  });
 });
