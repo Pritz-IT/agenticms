@@ -19,21 +19,21 @@ export function parseFormArgs(args: string[]): { form: string } {
 
 export async function listForms(adminUrlArg: string | undefined, projectRoot: string, siteArg?: string): Promise<void> {
   const { adminUrl, credential } = await loadCredential(adminUrlArg);
-  const s = await resolveSiteSelection(projectRoot, siteArg);
-  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${s.siteKey}/cli/forms`, {}, credential);
+  const selection = await resolveSiteSelection(projectRoot, siteArg);
+  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${selection.siteKey}/cli/forms`, {}, credential);
   for (const f of forms) console.log(f);
 }
 
 export async function addForm(adminUrlArg: string | undefined, projectRoot: string, siteArg: string | undefined, form: string): Promise<void> {
   const { adminUrl, credential } = await loadCredential(adminUrlArg);
-  const s = await resolveSiteSelection(projectRoot, siteArg);
-  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${s.siteKey}/cli/forms`, { method: "POST", body: JSON.stringify({ form }) }, credential);
+  const selection = await resolveSiteSelection(projectRoot, siteArg);
+  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${selection.siteKey}/cli/forms`, { method: "POST", body: JSON.stringify({ form }) }, credential);
   console.log(`Allowed forms: ${forms.join(", ") || "(none)"}`);
 }
 
 export async function removeForm(adminUrlArg: string | undefined, projectRoot: string, siteArg: string | undefined, form: string): Promise<void> {
   const { adminUrl, credential } = await loadCredential(adminUrlArg);
-  const s = await resolveSiteSelection(projectRoot, siteArg);
-  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${s.siteKey}/cli/forms/${encodeURIComponent(form)}`, { method: "DELETE" }, credential);
+  const selection = await resolveSiteSelection(projectRoot, siteArg);
+  const { forms } = await requestJson<{ forms: string[] }>(adminUrl, `/api/sites/${selection.siteKey}/cli/forms/${encodeURIComponent(form)}`, { method: "DELETE" }, credential);
   console.log(`Allowed forms: ${forms.join(", ") || "(none)"}`);
 }
