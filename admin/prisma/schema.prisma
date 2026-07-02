@@ -45,6 +45,7 @@ model Site {
   stagingDomain String          @map("staging_domain")
   defaultLocale String          @map("default_locale")
   siteUrl       String?         @map("site_url")
+  allowedForms  String[]        @default([]) @map("allowed_forms")
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
   locales       Locale[]

@@ -3,11 +3,14 @@ import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "../lib/toast-error";
-import { Save } from "lucide-react";
+import { Plus, Save, X } from "lucide-react";
 import { TopBar } from "../components/TopBar";
 import { fetchLocales } from "../api/locales";
 import { fetchSettings, updateSettings } from "../api/settings";
+import { fetchForms, addForm, removeForm } from "../api/forms";
 import { DEFAULT_SITE_KEY } from "../site-routing";
+
+const FORM_SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 export function SettingsPage() {
   const { siteKey = DEFAULT_SITE_KEY } = useParams();
@@ -15,13 +18,16 @@ export function SettingsPage() {
 
   const settingsQuery = useQuery({ queryKey: ["settings", siteKey], queryFn: () => fetchSettings(siteKey) });
   const localesQuery = useQuery({ queryKey: ["locales", siteKey], queryFn: () => fetchLocales(siteKey) });
+  const formsQuery = useQuery({ queryKey: ["forms", siteKey], queryFn: () => fetchForms(siteKey) });
 
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [stagingDomain, setStagingDomain] = useState("");
   const [defaultLocale, setDefaultLocale] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
+  const [newForm, setNewForm] = useState("");
   const locales = localesQuery.data ?? [];
+  const forms = formsQuery.data?.forms ?? [];
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -47,6 +53,39 @@ export function SettingsPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     saveMutation.mutate({ name, domain, stagingDomain, defaultLocale, siteUrl });
+  }
+
+  const addFormMutation = useMutation({
+    mutationFn: (form: string) => addForm(siteKey, form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["forms", siteKey] });
+      setNewForm("");
+      toast.success("Form added");
+    },
+    onError: (err) => {
+      toastError("Failed to add form", err);
+    },
+  });
+
+  const removeFormMutation = useMutation({
+    mutationFn: (slug: string) => removeForm(siteKey, slug),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["forms", siteKey] });
+      toast.success("Form removed");
+    },
+    onError: (err) => {
+      toastError("Failed to remove form", err);
+    },
+  });
+
+  function handleAddForm(e: React.FormEvent) {
+    e.preventDefault();
+    const slug = newForm.trim().toLowerCase();
+    if (!FORM_SLUG_PATTERN.test(slug) || slug.length > 64) {
+      toast.error("Use lowercase letters, numbers, and hyphens (max 64 characters)");
+      return;
+    }
+    addFormMutation.mutate(slug);
   }
 
   return (
@@ -144,6 +183,73 @@ export function SettingsPage() {
             </div>
           </form>
         )}
+
+        <div className="surface mt-6 flex max-w-2xl flex-col gap-4 p-5">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">Submission Forms</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Form names this site's public submissions endpoint will accept.
+            </p>
+          </div>
+
+          {formsQuery.isLoading ? (
+            <div className="space-y-2">
+              <div className="skeleton-line w-1/3" />
+              <div className="skeleton-line w-1/4" />
+            </div>
+          ) : formsQuery.isError ? (
+            <p className="text-sm text-red-300">Failed to load submission forms.</p>
+          ) : (
+            <>
+              {forms.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  This site accepts no submission forms yet. Add a form name (e.g. <code>contact</code>) to start
+                  accepting submissions.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {forms.map((slug) => (
+                    <span
+                      key={slug}
+                      className="status-pill gap-1.5 border-zinc-700 bg-zinc-800/60 text-zinc-200"
+                    >
+                      {slug}
+                      <button
+                        type="button"
+                        onClick={() => removeFormMutation.mutate(slug)}
+                        disabled={removeFormMutation.isPending}
+                        aria-label={`Remove ${slug}`}
+                        className="text-zinc-500 transition hover:text-red-300 disabled:opacity-50"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={handleAddForm} className="flex items-end gap-2">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label className="ui-label">Add Form</label>
+                  <input
+                    type="text"
+                    value={newForm}
+                    onChange={(e) => setNewForm(e.target.value)}
+                    placeholder="contact"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addFormMutation.isPending || !newForm.trim()}
+                  className="ui-button ui-button-primary"
+                >
+                  <Plus className="h-4 w-4" />
+                  {addFormMutation.isPending ? "Adding…" : "Add"}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

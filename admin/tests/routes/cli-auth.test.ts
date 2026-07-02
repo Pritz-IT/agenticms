@@ -108,7 +108,7 @@ describe("CLI device auth", () => {
     expect(tokenRes.statusCode).toBe(200);
     const body = tokenRes.json() as { token: string; scopes: string[] };
     expect(body.token).toMatch(/^sfcli_/);
-    expect(body.scopes).toEqual(["layouts:write", "assets:write", "builds:write", "status:read", "sites:write", "pages:write"]);
+    expect(body.scopes).toEqual(["layouts:write", "assets:write", "builds:write", "status:read", "sites:write", "pages:write", "forms:write"]);
 
     const second = await poll(challenge.deviceId, challenge.deviceSecret);
     expect(second.statusCode).toBe(202);

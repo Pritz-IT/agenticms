@@ -17,6 +17,7 @@ import { MIME_BY_EXT } from "./services/asset-watcher.js";
 
 import authRoutes from "./routes/auth.js";
 import settingsRoutes, { registerSiteSettingsRoutes } from "./routes/settings.js";
+import { registerSiteFormsRoutes } from "./routes/site-forms.js";
 import localesRoutes, { registerSiteLocalesRoutes } from "./routes/locales.js";
 import layoutsRoutes, { registerSiteLayoutsRoutes } from "./routes/layouts.js";
 import pagesRoutes, { registerSitePagesRoutes } from "./routes/pages.js";
@@ -152,6 +153,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(registerSiteLocalesRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteContentRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteSettingsRoutes, { prefix: "/api/sites" });
+  await app.register(registerSiteFormsRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteNavigationRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteStagingAccessRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteAssetsRoutes, { prefix: "/api/sites" });

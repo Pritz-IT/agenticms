@@ -237,8 +237,8 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-// Clean key-value view for any flat form payload (contact, working-capital,
-// solutions-consultation, …). Generic over the keys so new forms render too.
+// Clean key-value view for any flat form payload (contact, newsletter,
+// consultation, …). Generic over the keys so new forms render too.
 function FlatDataView({
   data,
   email,
@@ -282,8 +282,8 @@ function SubmissionDetail({
   const hasTranscript = Array.isArray(d.responses) && d.responses.length > 0;
 
   if (!hasTranscript) {
-    // Flat forms (contact, working-capital, solutions-consultation, …) get a
-    // clean key-value view. Only the quiz (responses[] present) gets the rich
+    // Flat forms (contact, newsletter, consultation, …) get a clean key-value
+    // view. Only the quiz (responses[] present) gets the rich
     // scorecard/transcript layout below.
     return <FlatDataView data={data} email={email} />;
   }
