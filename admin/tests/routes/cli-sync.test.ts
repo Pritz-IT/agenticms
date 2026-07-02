@@ -5,8 +5,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { buildApp } from "../../src/app.js";
 import { config } from "../../src/config.js";
-import { approveDeviceChallenge, consumeApprovedChallenge, createDeviceChallenge } from "../../src/services/cli-auth.js";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
+import { issueCliToken } from "../helpers/cli.js";
 
 vi.mock("../../src/services/build.service.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/services/build.service.js")>()),
@@ -36,15 +36,6 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function issueCliToken(): Promise<string> {
-  const { user: admin } = await createTestUser(app, { role: "admin", email: uniqueEmail("admin") });
-  const challenge = await createDeviceChallenge(app.prisma, "Sync test");
-  expect(await approveDeviceChallenge(app.prisma, challenge.deviceId, challenge.code, admin)).toBe(true);
-  const issued = await consumeApprovedChallenge(app.prisma, challenge.deviceId, challenge.deviceSecret);
-  expect(issued).toBeTruthy();
-  return issued!.token;
 }
 
 beforeAll(async () => {
@@ -103,7 +94,7 @@ beforeEach(async () => {
 
   const { user: editor } = await createTestUser(app, { role: "editor", email: uniqueEmail("editor") });
   editorToken = getAccessToken(editor);
-  cliToken = await issueCliToken();
+  cliToken = await issueCliToken(app);
   demoSiteId = demoSite.id;
 });
 

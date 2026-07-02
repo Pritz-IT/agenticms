@@ -15,6 +15,7 @@ import {
 } from "../services/cli-sync.js";
 import { admitBuild, BuildQueueAdmissionError, triggerBuild } from "../services/build.service.js";
 import { requireSite, type SiteParams } from "../services/sites.js";
+import { normalizeSlug, addAllowedForm, removeAllowedForm, listAllowedForms } from "../services/site-forms.js";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { readdir, rm } from "node:fs/promises";
 import { config } from "../config.js";
@@ -637,6 +638,25 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
       return reply.send({ ok: true });
     }
   );
+
+  app.get<{ Params: SiteParams }>("/:siteKey/cli/forms", { preHandler: app.authenticateCli("status:read") }, async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    return reply.send({ forms: await listAllowedForms(app, site.id) });
+  });
+  app.post<{ Params: SiteParams; Body: { form?: unknown } }>("/:siteKey/cli/forms", { preHandler: app.authenticateCli("forms:write") }, async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    const slug = normalizeSlug(request.body?.form);
+    if (!slug) return reply.status(400).send({ error: "Invalid form name" });
+    const result = await addAllowedForm(app, site.id, slug);
+    if (result.outcome === "limit") return reply.status(409).send({ error: "form limit reached" });
+    return reply.send({ forms: result.forms });
+  });
+  app.delete<{ Params: SiteParams & { slug: string } }>("/:siteKey/cli/forms/:slug", { preHandler: app.authenticateCli("forms:write") }, async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    const slug = normalizeSlug(request.params.slug);
+    if (!slug) return reply.status(400).send({ error: "Invalid form name" });
+    return reply.send({ forms: (await removeAllowedForm(app, site.id, slug)).forms });
+  });
 
   app.get<{ Params: SiteParams }>("/:siteKey/cli/export/layouts", { preHandler: app.authenticateCli("layouts:write") }, async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);

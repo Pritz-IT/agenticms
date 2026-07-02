@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../src/app.js";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
+import { issueCliToken } from "../helpers/cli.js";
 
 let app: FastifyInstance;
 let adminToken: string;
@@ -120,5 +121,18 @@ describe("GET/POST/DELETE /api/sites/:siteKey/forms", () => {
       })).statusCode
     ).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/sites/demo/forms" })).statusCode).toBe(401);
+  });
+
+  it("CLI token with forms:write adds a form (200)", async () => {
+    const token = await issueCliToken(app); // all scopes incl. forms:write (after Step 1)
+    const res = await app.inject({ method: "POST", url: "/api/sites/demo/cli/forms", headers: { authorization: `Bearer ${token}` }, payload: { form: "contact" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ forms: ["contact"] });
+  });
+  it("CLI token WITHOUT forms:write is rejected (403)", async () => {
+    const token = await issueCliToken(app);
+    await app.prisma.cliToken.updateMany({ data: { scopes: ["status:read"] } }); // strip forms:write
+    const res = await app.inject({ method: "POST", url: "/api/sites/demo/cli/forms", headers: { authorization: `Bearer ${token}` }, payload: { form: "contact" } });
+    expect(res.statusCode).toBe(403);
   });
 });
