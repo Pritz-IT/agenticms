@@ -105,6 +105,8 @@ agenticms sync assets --site demo
 
 Workspaces use root-level `site.json`, `layouts/`, and `assets/`. Older `.agenticms/site.json` workspaces remain supported.
 
+`agenticms forms list|add|remove --site <key> --form <slug>` manages the per-site form allowlist. Existing CLI tokens must re-login (`agenticms login <url>`) to pick up the new `forms:write` scope before `forms add`/`forms remove` will work.
+
 Production builds and deployments must be explicitly approved by the site owner.
 Use staging builds for review whenever possible.
 
