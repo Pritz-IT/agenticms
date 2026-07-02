@@ -59,6 +59,39 @@ export async function seedAdminUser(
   return { created: true, email };
 }
 
+/**
+ * Idempotently seed the demo site.
+ *
+ * `allowedForms` is set ONLY in the `create` branch — deliberately create-only,
+ * so an operator's opt-in allowlist edits survive every re-seed/reboot. The
+ * other fields keep their pre-existing per-boot `update` refresh (unchanged,
+ * out of scope for this function's contract).
+ */
+export async function seedDemoSite(prisma: PrismaClient): Promise<{ id: string }> {
+  const site = await prisma.site.upsert({
+    where: { key: 'demo' },
+    update: {
+      name: 'Demo Site',
+      domain: 'example.com',
+      stagingDomain: 'staging.example.com',
+      defaultLocale: 'de',
+      siteUrl: 'https://example.com',
+      // NOTE: allowedForms intentionally omitted — create-only, never overwritten.
+    },
+    create: {
+      key: 'demo',
+      name: 'Demo Site',
+      domain: 'example.com',
+      stagingDomain: 'staging.example.com',
+      defaultLocale: 'de',
+      siteUrl: 'https://example.com',
+      allowedForms: ['contact', 'sample-template'],
+    },
+  });
+  console.log('Upserted default site: demo.');
+  return { id: site.id };
+}
+
 async function main() {
   const prisma = new PrismaClient();
   try {
@@ -66,25 +99,7 @@ async function main() {
     await seedAdminUser(prisma);
 
     // 2. Default site
-    const demoSite = await prisma.site.upsert({
-      where: { key: 'demo' },
-      update: {
-        name: 'Demo Site',
-        domain: 'example.com',
-        stagingDomain: 'staging.example.com',
-        defaultLocale: 'de',
-        siteUrl: 'https://example.com',
-      },
-      create: {
-        key: 'demo',
-        name: 'Demo Site',
-        domain: 'example.com',
-        stagingDomain: 'staging.example.com',
-        defaultLocale: 'de',
-        siteUrl: 'https://example.com',
-      },
-    });
-    console.log('Upserted default site: demo.');
+    const demoSite = await seedDemoSite(prisma);
 
     // 3. Default locale
     const localeCount = await prisma.locale.count({ where: { siteId: demoSite.id } });
