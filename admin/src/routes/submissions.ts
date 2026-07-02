@@ -14,7 +14,6 @@ interface CreateSubmissionBody {
   ref?: string;
 }
 
-const ALLOWED_FORMS = ["sample-template", "solutions-consultation", "contact", "working-capital", "ai-readiness"] as const;
 const DEFAULT_SITE_KEY = "demo";
 
 function hostFromUrl(value: string): string | null {
@@ -47,10 +46,10 @@ function isLocalhostOrigin(origin: string | undefined): boolean {
 async function resolveSubmissionSite(
   app: FastifyInstance,
   origin: string | undefined,
-): Promise<{ id: string; key: string } | null> {
+): Promise<{ id: string; key: string; allowedForms: string[] } | null> {
   if (isLocalhostOrigin(origin)) {
     const site = await requireSite(app, DEFAULT_SITE_KEY);
-    return { id: site.id, key: site.key };
+    return { id: site.id, key: site.key, allowedForms: site.allowedForms };
   }
   if (!origin) {
     return null;
@@ -62,13 +61,13 @@ async function resolveSubmissionSite(
   }
 
   const sites = await app.prisma.site.findMany({
-    select: { id: true, key: true, domain: true, stagingDomain: true, siteUrl: true },
+    select: { id: true, key: true, domain: true, stagingDomain: true, siteUrl: true, allowedForms: true },
   });
   for (const site of sites) {
     for (const value of [site.domain, site.stagingDomain, site.siteUrl]) {
       const allowed = configuredHost(value);
       if (allowed === host) {
-        return { id: site.id, key: site.key };
+        return { id: site.id, key: site.key, allowedForms: site.allowedForms };
       }
     }
   }
@@ -116,7 +115,7 @@ const createSubmissionSchema = {
     required: ["form", "data", "t"],
     additionalProperties: false,
     properties: {
-      form: { type: "string", enum: ALLOWED_FORMS as unknown as string[] },
+      form: { type: "string", minLength: 1, maxLength: 64, pattern: "^[a-z0-9-]+$" },
       data: { type: "object" },
       score: { type: "integer", minimum: 0, maximum: 36 },
       email: {
@@ -152,15 +151,15 @@ async function resolveSubmissionSiteFromSignals(
   app: FastifyInstance,
   origin: string | undefined,
   hostSignal: string | undefined,
-): Promise<{ id: string; key: string } | null> {
+): Promise<{ id: string; key: string; allowedForms: string[] } | null> {
   const primarySignal = origin ?? hostSignal;
   if (!primarySignal) {
     const site = await requireSite(app, DEFAULT_SITE_KEY);
-    return { id: site.id, key: site.key };
+    return { id: site.id, key: site.key, allowedForms: site.allowedForms };
   }
   if (isLocalhostOrigin(primarySignal)) {
     const site = await requireSite(app, DEFAULT_SITE_KEY);
-    return { id: site.id, key: site.key };
+    return { id: site.id, key: site.key, allowedForms: site.allowedForms };
   }
   return resolveSubmissionSite(app, primarySignal);
 }
@@ -214,6 +213,10 @@ export default async function submissionsRoutes(app: FastifyInstance) {
       const site = await resolveSubmissionSiteFromSignals(app, origin, hostSignalFromHeaders(request.headers));
       if (!site) {
         request.log.warn({ op: "submission.create", reason: "origin not allowed", origin, host: request.headers.host }, "submission rejected — origin");
+        return reply.status(400).send({ error: "Invalid submission" });
+      }
+      if (!site.allowedForms.includes(form)) {
+        request.log.warn({ op: "submission.create", siteKey: site.key, reason: "form not allowlisted" }, "submission rejected — form");
         return reply.status(400).send({ error: "Invalid submission" });
       }
 

@@ -48,6 +48,7 @@ beforeEach(async () => {
       stagingDomain: "staging.example.com",
       defaultLocale: "de",
       siteUrl: "https://example.com",
+      allowedForms: ["sample-template"],
     },
   });
 });

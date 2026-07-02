@@ -27,6 +27,7 @@ beforeEach(async () => {
       stagingDomain: "staging.example.com",
       defaultLocale: "de",
       siteUrl: "https://example.com",
+      allowedForms: ["sample-template", "contact", "quiz"],
     },
   });
   const { user: editor } = await createTestUser(app, { role: "editor", email: "editor@example.com" });
@@ -56,6 +57,7 @@ async function createAgenticmsSite() {
       stagingDomain: "staging.agenticms.local",
       defaultLocale: "en",
       siteUrl: "https://agenticms.local",
+      allowedForms: ["sample-template", "quiz"],
     },
   });
 }
@@ -154,15 +156,38 @@ describe("POST /api/submissions", () => {
     expect(res.statusCode).toBe(201);
   });
 
-  it('accepts the ai-readiness quiz form (201)', async () => {
+  it("accepts the quiz form (201)", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/submissions",
-      payload: validBody({ form: "ai-readiness" }),
+      payload: validBody({ form: "quiz" }),
     });
     expect(res.statusCode).toBe(201);
     const row = await app.prisma.submission.findUnique({ where: { id: res.json().id as string } });
-    expect(row?.form).toBe("ai-readiness");
+    expect(row?.form).toBe("quiz");
+  });
+
+  it("rejects a form that is not in the site's allowlist (400, generic body, no row)", async () => {
+    const demo = await app.prisma.site.findUniqueOrThrow({ where: { key: "demo" } });
+    await app.prisma.site.update({ where: { id: demo.id }, data: { allowedForms: ["contact"] } });
+    const res = await app.inject({ method: "POST", url: "/api/submissions", payload: validBody({ form: "sample-template" }) });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Invalid submission" });
+    expect(await app.prisma.submission.count()).toBe(0);
+  });
+
+  it("rejects a malformed form slug via schema (400)", async () => {
+    // Regression guard: 400 today via the enum, 400 after via the slug pattern —
+    // green before AND after (not a TDD-red case).
+    const res = await app.inject({ method: "POST", url: "/api/submissions", payload: validBody({ form: "Bad Form!" }) });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects every form when the site's allowlist is empty (400)", async () => {
+    const demo = await app.prisma.site.findUniqueOrThrow({ where: { key: "demo" } });
+    await app.prisma.site.update({ where: { id: demo.id }, data: { allowedForms: [] } });
+    const res = await app.inject({ method: "POST", url: "/api/submissions", payload: validBody() });
+    expect(res.statusCode).toBe(400);
   });
 
   it("rejects a foreign Origin (400)", async () => {
@@ -296,12 +321,12 @@ describe("POST /api/submissions — ref upsert", () => {
     expect(rows[0].clientRef).toBe(REF);
   });
 
-  it("ai-readiness: completion saves anonymously, then same-ref email attaches to it", async () => {
+  it("quiz: completion saves anonymously, then same-ref email attaches to it", async () => {
     // On quiz completion: anonymous score save (no email yet).
     const first = await app.inject({
       method: "POST",
       url: "/api/submissions",
-      payload: validBody({ form: "ai-readiness", email: undefined, ref: REF }),
+      payload: validBody({ form: "quiz", email: undefined, ref: REF }),
     });
     expect(first.statusCode).toBe(201);
     expect(first.json().attached).toBe(false);
@@ -309,13 +334,13 @@ describe("POST /api/submissions — ref upsert", () => {
     const second = await app.inject({
       method: "POST",
       url: "/api/submissions",
-      payload: validBody({ form: "ai-readiness", email: "lead@firma.ch", ref: REF }),
+      payload: validBody({ form: "quiz", email: "lead@firma.ch", ref: REF }),
     });
     expect(second.statusCode).toBe(201);
     expect(second.json().attached).toBe(true);
     const rows = await app.prisma.submission.findMany();
     expect(rows).toHaveLength(1);
-    expect(rows[0].form).toBe("ai-readiness");
+    expect(rows[0].form).toBe("quiz");
     expect(rows[0].email).toBe("lead@firma.ch");
     expect(rows[0].wantsContact).toBe(true);
   });
