@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "../lib/toast-error";
+import { createKeyedDebounce } from "../lib/keyed-debounce";
 import { Eye, FormInput } from "lucide-react";
 import { TopBar } from "../components/TopBar";
 import { LocaleTabs } from "../components/LocaleTabs";
@@ -144,16 +145,27 @@ export function PageEditorPage() {
     },
   });
 
+  // One PUT per pause in typing instead of per keystroke — parallel per-keystroke
+  // saves land out of order server-side and corrupt the stored value.
+  const contentSaveDebounceRef = useRef(createKeyedDebounce(600));
+  useEffect(() => {
+    const debounce = contentSaveDebounceRef.current;
+    return () => debounce.flushAll();
+  }, []);
+
   function handleContentChange(key: string, value: string) {
     const existing = contentMap.get(key);
     const keyDef = layout?.detectedKeys?.[key];
     if (keyDef && isContentType(keyDef.type)) {
-      createContentMutation.mutate({
-        pageId: id!,
-        key,
-        locale: selectedLocale,
-        value,
-        type: existing?.type ?? keyDef.type,
+      const type = existing?.type ?? keyDef.type;
+      contentSaveDebounceRef.current.schedule(`${selectedLocale}:${key}`, () => {
+        createContentMutation.mutate({
+          pageId: id!,
+          key,
+          locale: selectedLocale,
+          value,
+          type,
+        });
       });
     }
   }
