@@ -1,6 +1,7 @@
 ---
 import { getConfig, getDefaultLocale } from "../lib/config";
 import { resolveContent } from "../lib/content";
+import { pageSlug } from "../lib/routes";
 import type { Page, Navigation } from "../lib/site-config-types";
 
 export async function getStaticPaths() {
@@ -21,17 +22,7 @@ export async function getStaticPaths() {
 
   for (const page of pages) {
     for (const locale of locales) {
-      const isDefault = locale.code === defaultLocale;
-      const pagePath = page.path.replace(/^\//, "");
-      const isHomepage = pagePath === "" || pagePath === "/";
-
-      let slug: string | undefined;
-      if (isHomepage) {
-        slug = isDefault ? undefined : locale.code;
-      } else {
-        slug = isDefault ? pagePath : `${locale.code}/${pagePath}`;
-      }
-
+      const slug = pageSlug(page.path, locale.code, defaultLocale);
       const content = resolveContent(page, locale.code, defaultLocale);
       const layoutFilePath = page.layout?.filePath ?? null;
 
@@ -77,8 +68,21 @@ const favicon = content["_meta.favicon"] as string | undefined;
 const base = (config.settings?.siteUrl ?? "").replace(/\/+$/, "");
 const rawImg = (content["_meta.image"] as string | undefined) ?? "";
 const ogImage = rawImg ? (/^https?:\/\//i.test(rawImg) ? rawImg : base + rawImg) : "";
-const canonical = base + Astro.url.pathname;
+const canonical =
+  (content["_meta.canonical"] as string | undefined) ||
+  (base ? base + Astro.url.pathname : "");
 const siteName = config.settings?.name ?? "";
+
+const isHomepage = page.path.replace(/^\//, "") === "";
+const organizationJsonLd =
+  isHomepage && siteName && base
+    ? JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        name: siteName,
+        url: base + "/",
+      })
+    : "";
 
 const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale === locale);
 ---
@@ -89,13 +93,13 @@ const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{metaTitle}</title>
     {metaDescription && <meta name="description" content={metaDescription} />}
-    {favicon && <link rel="shortcut icon" href={favicon} type="image/x-icon" />}
-    {base && <link rel="canonical" href={canonical} />}
+    {favicon && <link rel="shortcut icon" href={favicon} />}
+    {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:type" content="website" />
     {siteName && <meta property="og:site_name" content={siteName} />}
     {metaTitle && <meta property="og:title" content={metaTitle} />}
     {metaDescription && <meta property="og:description" content={metaDescription} />}
-    {base && <meta property="og:url" content={canonical} />}
+    {canonical && <meta property="og:url" content={canonical} />}
     {metaTitle && <meta name="twitter:title" content={metaTitle} />}
     {metaDescription && <meta name="twitter:description" content={metaDescription} />}
     {ogImage ? (
@@ -106,6 +110,9 @@ const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale 
       </>
     ) : (
       <meta name="twitter:card" content="summary" />
+    )}
+    {organizationJsonLd && (
+      <script type="application/ld+json" is:inline set:html={organizationJsonLd} />
     )}
   </head>
   <body>

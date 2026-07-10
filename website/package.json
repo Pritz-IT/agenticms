@@ -16,7 +16,7 @@
   "scripts": {
     "dev": "astro dev",
     "build:astro": "astro build",
-    "test": "tsx tests/content.test.ts && tsx tests/richtext.test.tsx && tsx tests/fields.test.tsx && tsx tests/layout-components.test.tsx && tsx tests/sample-layout.test.tsx && tsx tests/staging-htpasswd-wiring.test.ts && tsx tests/compose-website-mount.test.ts && tsx tests/compose-admin-paths.test.ts && tsx tests/nginx-security-hardening.test.ts"
+    "test": "tsx tests/routes.test.ts && tsx tests/content.test.ts && tsx tests/richtext.test.tsx && tsx tests/fields.test.tsx && tsx tests/layout-components.test.tsx && tsx tests/sample-layout.test.tsx && tsx tests/staging-htpasswd-wiring.test.ts && tsx tests/compose-website-mount.test.ts && tsx tests/compose-admin-paths.test.ts && tsx tests/nginx-security-hardening.test.ts"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.7",
