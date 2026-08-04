@@ -21,14 +21,56 @@ fetch_internal() {
   wget -qO- --header="x-api-key: ${INTERNAL_API_KEY}" "${ADMIN_API_URL}${path}" 2>/dev/null
 }
 
-SITES="$(fetch_internal "/api/sites/keys.txt" || true)"
-if [ -z "$SITES" ]; then
-  SITES="default"
-fi
+# Compose/Swarm start admin and website together, so the admin is usually still
+# running migrations when we get here. A single failed fetch used to fall back
+# to the `default` site silently and stay there for the whole container
+# lifetime — every host then served the default site's "No build yet"
+# placeholder with no error in any log. Retry, and if the admin is configured
+# but never answers, refuse to start rather than serve the wrong site.
+FETCH_RETRIES=60
+FETCH_INTERVAL=2
 
-SITE_HOST_MAP="$(fetch_internal "/api/sites/nginx-map" || true)"
-if [ -z "$SITE_HOST_MAP" ]; then
+fetch_internal_retry() {
+  path="$1"
+  attempt=1
+  while :; do
+    if body="$(fetch_internal "$path")"; then
+      printf '%s' "$body"
+      return 0
+    fi
+    if [ "$attempt" -ge "$FETCH_RETRIES" ]; then
+      return 1
+    fi
+    echo "waiting for admin ${ADMIN_API_URL}${path} (attempt ${attempt}/${FETCH_RETRIES})" >&2
+    attempt=$((attempt + 1))
+    sleep "$FETCH_INTERVAL"
+  done
+}
+
+fail_admin_unreachable() {
+  echo "FATAL: admin did not answer ${ADMIN_API_URL}${1} within $((FETCH_RETRIES * FETCH_INTERVAL))s" >&2
+  echo "FATAL: refusing to start — falling back to the 'default' site would serve every host the wrong site with no error" >&2
+  exit 1
+}
+
+if [ -z "${INTERNAL_API_KEY:-}" ]; then
+  # Explicit opt-out: without a key we cannot read sites at all. Loud, but not
+  # fatal — a standalone/demo container is still a legitimate deployment.
+  echo "WARNING: INTERNAL_API_KEY is unset — cannot read sites from the admin" >&2
+  echo "WARNING: serving the built-in 'default' site for every host" >&2
+  SITES="default"
   SITE_HOST_MAP="default default;"
+else
+  SITES="$(fetch_internal_retry "/api/sites/keys.txt")" || fail_admin_unreachable "/api/sites/keys.txt"
+  SITE_HOST_MAP="$(fetch_internal_retry "/api/sites/nginx-map")" || fail_admin_unreachable "/api/sites/nginx-map"
+
+  # A fresh install with no sites yet answers with an empty body. That is not a
+  # failure — bootstrap the default site and let the first `site create` land.
+  if [ -z "$SITES" ] || [ -z "$SITE_HOST_MAP" ]; then
+    echo "NOTE: admin reports no sites yet — serving 'default' until a site is created" >&2
+    SITES="default"
+    SITE_HOST_MAP="default default;"
+  fi
 fi
 printf '%s\n' "$SITE_HOST_MAP" > /tmp/site-host-map.conf
 
