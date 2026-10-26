@@ -28,6 +28,10 @@ http {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" always;
 
+    # Trusted-proxy real-IP lines (REAL_IP_FROM), rendered by the entrypoint so
+    # the limits below key on the visitor, not the proxy.
+__REAL_IP__
+
     limit_req_zone $binary_remote_addr zone=static:10m rate=30r/s;
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
     limit_req_zone $binary_remote_addr zone=auth:10m rate=2r/s;

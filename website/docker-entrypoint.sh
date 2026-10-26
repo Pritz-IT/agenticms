@@ -13,6 +13,24 @@ case "$ADMIN_API_URL" in *"|"*) echo "ADMIN_API_URL must not contain '|'"; exit 
 ADMIN_SERVER_NAME="${ADMIN_SERVER_NAME:-cms.example.com}"
 case "$ADMIN_SERVER_NAME" in *"|"*) echo "ADMIN_SERVER_NAME must not contain '|'"; exit 1;; esac
 
+# Behind a reverse proxy or tunnel every request arrives from the proxy's
+# address, so the per-IP rate limits become one bucket shared by all visitors.
+# REAL_IP_FROM lists the proxy addresses/CIDRs (space or comma separated) whose
+# REAL_IP_HEADER is trusted as the client address, e.g. REAL_IP_FROM=172.16.0.0/12
+# REAL_IP_HEADER=CF-Connecting-IP for a Cloudflare tunnel on the Docker host.
+# Unset = use the TCP peer address (no header is trusted).
+REAL_IP_HEADER="${REAL_IP_HEADER:-X-Forwarded-For}"
+REAL_IP_CONF=""
+if [ -n "${REAL_IP_FROM:-}" ]; then
+  case "$REAL_IP_HEADER" in *[!A-Za-z0-9-]*) echo "REAL_IP_HEADER must be a plain header name"; exit 1;; esac
+  for cidr in $(echo "$REAL_IP_FROM" | tr ',' ' '); do
+    case "$cidr" in *[!0-9A-Fa-f.:/]*) echo "REAL_IP_FROM entry '$cidr' is not an address or CIDR"; exit 1;; esac
+    REAL_IP_CONF="${REAL_IP_CONF}    set_real_ip_from ${cidr};\n"
+  done
+  REAL_IP_CONF="${REAL_IP_CONF}    real_ip_header ${REAL_IP_HEADER};\n    real_ip_recursive on;"
+  echo "real client IP from ${REAL_IP_HEADER}, trusted proxies: ${REAL_IP_FROM}"
+fi
+
 fetch_internal() {
   path="$1"
   if [ -z "${INTERNAL_API_KEY:-}" ]; then
@@ -105,7 +123,8 @@ awk '
     close("/tmp/site-host-map.conf")
     next
   }
+  /__REAL_IP__/ { if (realip != "") print realip; next }
   { print }
-' /tmp/nginx.conf > /etc/nginx/nginx.conf
+' realip="$REAL_IP_CONF" /tmp/nginx.conf > /etc/nginx/nginx.conf
 
 exec nginx -g 'daemon off;'
