@@ -210,6 +210,49 @@ describe("POST /api/submissions", () => {
     expect(res.statusCode).toBe(201);
   });
 
+  it("allows the www. variant of the configured production Origin (201)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      headers: { origin: "https://www.example.com" },
+      payload: validBody(),
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("allows the bare Origin when the site is configured with www. (201)", async () => {
+    const shop = await app.prisma.site.create({
+      data: {
+        key: "shop",
+        name: "Shop",
+        domain: "www.shop.local",
+        stagingDomain: "staging.shop.local",
+        defaultLocale: "de",
+        siteUrl: "https://www.shop.local",
+        allowedForms: ["contact"],
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      headers: { origin: "https://shop.local" },
+      payload: validBody({ form: "contact" }),
+    });
+    expect(res.statusCode).toBe(201);
+    const row = await app.prisma.submission.findUnique({ where: { id: res.json().id as string } });
+    expect(row?.siteId).toBe(shop.id);
+  });
+
+  it("still rejects other subdomains of the configured domain (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/submissions",
+      headers: { origin: "https://evil.example.com" },
+      payload: validBody(),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("stores submissions under the site resolved from Origin", async () => {
     const agenticms = await createAgenticmsSite();
     const res = await app.inject({

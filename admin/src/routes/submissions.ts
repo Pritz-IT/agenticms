@@ -31,6 +31,12 @@ function configuredHost(value: string | null | undefined): string | null {
   return (fromUrl ?? value).toLowerCase();
 }
 
+// The www. and bare forms of a domain are the same site (pritz-it.com serves both without a redirect),
+// so a form posted from either one must resolve. Only the www. prefix is folded - other subdomains stay distinct.
+function siteHost(host: string): string {
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
 function isLocalhostOrigin(origin: string | undefined): boolean {
   if (!origin) return true;
   const host = hostFromUrl(origin) ?? origin.toLowerCase();
@@ -67,7 +73,7 @@ async function resolveSubmissionSite(
   for (const site of sites) {
     for (const value of [site.domain, site.stagingDomain, site.siteUrl]) {
       const allowed = configuredHost(value);
-      if (allowed === host) {
+      if (allowed && siteHost(allowed) === siteHost(host)) {
         return { id: site.id, key: site.key, allowedForms: site.allowedForms };
       }
     }
