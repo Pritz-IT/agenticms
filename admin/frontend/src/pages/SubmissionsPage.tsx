@@ -78,6 +78,8 @@ export function SubmissionsPage() {
   const query = useQuery({
     queryKey: ["submissions", siteKey],
     queryFn: () => fetchSubmissions(siteKey),
+    // New leads appear without a manual reload.
+    refetchInterval: 30_000,
   });
 
   const deleteMutation = useMutation({
@@ -196,7 +198,10 @@ function SubmissionRow({
           )}
         </td>
         <td className="px-4 py-3"><ScoreBadge score={s.score} data={s.data} /></td>
-        <td className="px-4 py-3 text-neutral-500">{formatDate(s.createdAt)}</td>
+        <td className="px-4 py-3 text-neutral-500">
+          {formatDate(s.createdAt)}
+          <NotifyBadge submission={s} />
+        </td>
         <td className="px-4 py-3 text-right">
           <button
             onClick={(e) => {
@@ -356,5 +361,25 @@ function SubmissionDetail({
         </ol>
       </div>
     </div>
+  );
+}
+
+const NOTIFY_BADGES = {
+  pending: { label: "Mail queued", className: "border-neutral-600 text-neutral-400" },
+  sending: { label: "Mail sending", className: "border-neutral-600 text-neutral-400" },
+  sent: { label: "Mailed", className: "border-emerald-500/40 text-emerald-300" },
+  failed: { label: "Mail failed", className: "border-red-500/40 text-red-300" },
+} as const;
+
+function NotifyBadge({ submission: s }: { submission: Submission }) {
+  if (!s.notifyStatus) return null;
+  const badge = NOTIFY_BADGES[s.notifyStatus];
+  return (
+    <span
+      title={s.notifyError ?? (s.notifiedAt ? `Sent ${formatDate(s.notifiedAt)}` : undefined)}
+      className={`ml-2 inline-block rounded border px-2 py-0.5 text-xs font-medium ${badge.className}`}
+    >
+      {badge.label}
+    </span>
   );
 }

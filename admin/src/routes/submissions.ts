@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { config } from "../config.js";
 import { checkDataCaps } from "../lib/submission-guards.js";
 import { requireSite, type SiteParams } from "../services/sites.js";
+import { enqueueSubmissionNotification } from "../services/mail/submission-notifier.js";
 
 interface CreateSubmissionBody {
   form: string;
@@ -72,6 +73,16 @@ async function resolveSubmissionSite(
     }
   }
   return null;
+}
+
+// The submission is already stored; a notification problem must never turn
+// into a failed submit for the visitor.
+async function notifyAfterSave(app: FastifyInstance, request: { log: FastifyInstance["log"] }, submissionId: string, siteId: string) {
+  try {
+    await enqueueSubmissionNotification(app, submissionId, siteId);
+  } catch (err) {
+    request.log.error({ op: "notify.enqueue", submissionId, err }, "notify.enqueue failed");
+  }
 }
 
 async function listSubmissionsForSite(
@@ -244,6 +255,7 @@ export default async function submissionsRoutes(app: FastifyInstance) {
             },
           });
           request.log.info({ op: "submission.create", siteKey: site.key, id: updated.id, form, attached: true }, "submission.create done — attached to prior result");
+          await notifyAfterSave(app, request, updated.id, site.id);
           return reply.status(201).send({ id: updated.id, attached: true });
         }
       }
@@ -262,6 +274,7 @@ export default async function submissionsRoutes(app: FastifyInstance) {
       });
 
       request.log.info({ op: "submission.create", siteKey: site.key, id: submission.id, form }, "submission.create done");
+      await notifyAfterSave(app, request, submission.id, site.id);
       return reply.status(201).send({ id: submission.id, attached: false });
     }
   );

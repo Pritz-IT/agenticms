@@ -166,5 +166,8 @@ export interface Submission {
   score: number | null;
   email: string | null;
   wantsContact: boolean;
+  notifyStatus: "pending" | "sending" | "sent" | "failed" | null;
+  notifyError: string | null;
+  notifiedAt: string | null;
   createdAt: string;
 }

@@ -33,3 +33,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>
 );
+
+// Installable admin (PWA). The worker caches nothing; see public/sw.js.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then(() => console.info("[pwa] service worker registered"))
+      .catch((err) => console.error("[pwa] service worker registration failed", err));
+  });
+}
