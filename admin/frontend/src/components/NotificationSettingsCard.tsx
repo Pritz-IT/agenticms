@@ -229,6 +229,23 @@ export function NotificationSettingsCard({ siteKey }: { siteKey: string }) {
           )}
 
           {isOAuth && (
+            <div className="flex flex-col gap-1.5">
+              <label className="ui-label">Send As (optional)</label>
+              <input
+                type="email"
+                value={fromAddress}
+                onChange={(e) => setFromAddress(e.target.value)}
+                placeholder={s.oauthAccount ?? "submissions@example.com"}
+              />
+              <p className="text-xs text-zinc-500">
+                {provider === "microsoft"
+                  ? "Leave empty to send from the connected account. For a shared mailbox, the connected account needs \"Send As\" rights on it in Exchange."
+                  : "Leave empty to send from the connected account. Another address must be set up under \"Send mail as\" in Gmail."}
+              </p>
+            </div>
+          )}
+
+          {isOAuth && (
             <div className="flex flex-col gap-3 rounded border border-zinc-800 p-4">
               {!oauthAvailable ? (
                 <p className="text-sm text-amber-200">

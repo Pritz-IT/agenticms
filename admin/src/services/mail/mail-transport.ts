@@ -56,6 +56,15 @@ async function accessToken(s: SiteNotificationSettings, provider: "microsoft" | 
   };
 }
 
+// A sender other than the connected account (e.g. a shared mailbox) goes in
+// message.from; Exchange then requires Send As (or Send on Behalf) rights for
+// the connected user on that mailbox.
+export function microsoftFrom(s: Pick<SiteNotificationSettings, "fromAddress" | "oauthAccount">) {
+  const from = s.fromAddress?.trim();
+  if (!from || from.toLowerCase() === s.oauthAccount?.toLowerCase()) return {};
+  return { from: { emailAddress: { address: from } } };
+}
+
 async function sendMicrosoft(s: SiteNotificationSettings, msg: MailMessage): Promise<SendOutcome> {
   const { token, outcome } = await accessToken(s, "microsoft");
   const res = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
@@ -63,6 +72,7 @@ async function sendMicrosoft(s: SiteNotificationSettings, msg: MailMessage): Pro
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       message: {
+        ...microsoftFrom(s),
         subject: msg.subject,
         body: { contentType: "Text", content: msg.text },
         toRecipients: msg.to.map((address) => ({ emailAddress: { address } })),
@@ -74,7 +84,8 @@ async function sendMicrosoft(s: SiteNotificationSettings, msg: MailMessage): Pro
   });
   if (res.status !== 202) {
     const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
-    throw new Error(`Microsoft Graph sendMail failed (${res.status}): ${body.error?.code ?? ""} ${body.error?.message ?? ""}`.trim());
+    const hint = body.error?.code === "ErrorSendAsDenied" ? ` - give ${s.oauthAccount} "Send As" rights on ${s.fromAddress} in Exchange` : "";
+    throw new Error(`Microsoft Graph sendMail failed (${res.status}): ${body.error?.code ?? ""} ${body.error?.message ?? ""}`.trim() + hint);
   }
   return outcome;
 }
