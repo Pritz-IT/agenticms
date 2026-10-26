@@ -71,7 +71,7 @@ const script = entrypoint
 const scriptPath = join(sandbox, "entrypoint.sh");
 writeFileSync(scriptPath, script);
 chmodSync(scriptPath, 0o755);
-writeFileSync(join(sandbox, "etc/nginx/nginx.conf.template"), "http {\n    map $host $site_key {\n__SITE_HOST_MAP__\n    }\n}\n");
+writeFileSync(join(sandbox, "etc/nginx/nginx.conf.template"), "http {\n__REAL_IP__\n    map $host $site_key {\n__SITE_HOST_MAP__\n    }\n}\n");
 
 execFileSync("/bin/sh", [scriptPath], {
   env: { PATH: `${bin}:${process.env.PATH}`, INTERNAL_API_KEY: "test-key", ADMIN_API_URL: "http://admin:3000" },
@@ -88,5 +88,26 @@ assert.ok(
   !/^\s*default default;/m.test(rendered),
   "the boot-time fallback map must not survive a recovered admin"
 );
+
+// 5. No REAL_IP_FROM: no header is trusted and the placeholder leaves no trace.
+assert.ok(!/real_ip|__REAL_IP__/.test(rendered), "without REAL_IP_FROM no real_ip directives may be rendered");
+
+// 6. REAL_IP_FROM set: one set_real_ip_from per entry plus the header.
+const run = (extra: Record<string, string>) =>
+  execFileSync("/bin/sh", [scriptPath], {
+    env: { PATH: `${bin}:${process.env.PATH}`, INTERNAL_API_KEY: "test-key", ADMIN_API_URL: "http://admin:3000", ...extra },
+    timeout: 20_000,
+    stdio: "pipe",
+  });
+run({ REAL_IP_FROM: "172.16.0.0/12, fd00::/8", REAL_IP_HEADER: "CF-Connecting-IP" });
+const withRealIp = readFileSync(join(sandbox, "etc/nginx/nginx.conf"), "utf-8");
+assert.match(withRealIp, /^ {4}set_real_ip_from 172\.16\.0\.0\/12;$/m);
+assert.match(withRealIp, /^ {4}set_real_ip_from fd00::\/8;$/m);
+assert.match(withRealIp, /^ {4}real_ip_header CF-Connecting-IP;$/m);
+assert.match(withRealIp, /^ {4}real_ip_recursive on;$/m);
+
+// 7. Values are spliced into nginx.conf, so anything but an address/header name is fatal.
+assert.throws(() => run({ REAL_IP_FROM: "0.0.0.0/0; return 200" }), "a non-CIDR REAL_IP_FROM must abort");
+assert.throws(() => run({ REAL_IP_FROM: "10.0.0.0/8", REAL_IP_HEADER: "X-Real-IP; deny all" }), "a bad REAL_IP_HEADER must abort");
 
 console.log("entrypoint-admin-fetch tests passed");
