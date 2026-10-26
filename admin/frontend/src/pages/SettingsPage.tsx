@@ -9,6 +9,7 @@ import { fetchLocales } from "../api/locales";
 import { fetchSettings, updateSettings } from "../api/settings";
 import { fetchForms, addForm, removeForm } from "../api/forms";
 import { DEFAULT_SITE_KEY } from "../site-routing";
+import { NotificationSettingsCard } from "../components/NotificationSettingsCard";
 
 const FORM_SLUG_PATTERN = /^[a-z0-9-]+$/;
 
@@ -250,6 +251,8 @@ export function SettingsPage() {
             </>
           )}
         </div>
+
+        <NotificationSettingsCard siteKey={siteKey} />
       </div>
     </div>
   );

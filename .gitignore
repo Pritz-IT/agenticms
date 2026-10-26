@@ -43,3 +43,4 @@ output/
 .claude/worktrees/
 .claude/*.lock
 .DS_Store
+.dev-session/

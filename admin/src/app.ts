@@ -29,6 +29,7 @@ import buildsRoutes, { registerSiteBuildsRoutes } from "./routes/builds.js";
 import usersRoutes from "./routes/users.js";
 import configRoutes from "./routes/config.js";
 import submissionsRoutes, { registerSiteSubmissionsRoutes } from "./routes/submissions.js";
+import mailOAuthCallbackRoutes, { registerSiteNotificationRoutes } from "./routes/notifications.js";
 import cliRoutes, { registerSiteCliRoutes } from "./routes/cli.js";
 import sitesRoutes from "./routes/sites.js";
 import globalAssetsRoutes, { registerSiteGlobalAssetsRoutes } from "./routes/global-assets.js";
@@ -160,6 +161,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(registerSiteBuildsRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteCliRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteSubmissionsRoutes, { prefix: "/api/sites" });
+  await app.register(registerSiteNotificationRoutes, { prefix: "/api/sites" });
+  await app.register(mailOAuthCallbackRoutes, { prefix: "/api/oauth" });
 
   // Serve uploaded assets at /assets/:filename
   const assetsDir = resolve(config.ASSETS_DIR);

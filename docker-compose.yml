@@ -63,6 +63,15 @@ services:
       # X-Forwarded-For (real client IP) is honoured for rate limiting. Sound
       # ONLY because admin is not directly published (see header).
       - TRUST_PROXY=172.16.0.0/12
+      # Submission email notifications (optional). SECRETS_KEY encrypts stored
+      # SMTP passwords and OAuth refresh tokens; the OAuth apps enable the
+      # "Connect Microsoft 365 / Google" buttons. See .env.example.
+      - SECRETS_KEY=${SECRETS_KEY:-}
+      - MS_OAUTH_CLIENT_ID=${MS_OAUTH_CLIENT_ID:-}
+      - MS_OAUTH_CLIENT_SECRET=${MS_OAUTH_CLIENT_SECRET:-}
+      - MS_OAUTH_TENANT=${MS_OAUTH_TENANT:-common}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
     networks:
       - agenticms
     depends_on:

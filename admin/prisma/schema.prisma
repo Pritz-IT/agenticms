@@ -38,16 +38,16 @@ enum GlobalAssetMode {
 }
 
 model Site {
-  id            String          @id @default(cuid())
-  key           String          @unique
+  id            String                    @id @default(cuid())
+  key           String                    @unique
   name          String
   domain        String
-  stagingDomain String          @map("staging_domain")
-  defaultLocale String          @map("default_locale")
-  siteUrl       String?         @map("site_url")
-  allowedForms  String[]        @default([]) @map("allowed_forms")
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+  stagingDomain String                    @map("staging_domain")
+  defaultLocale String                    @map("default_locale")
+  siteUrl       String?                   @map("site_url")
+  allowedForms  String[]                  @default([]) @map("allowed_forms")
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
   locales       Locale[]
   layouts       Layout[]
   pages         Page[]
@@ -56,6 +56,7 @@ model Site {
   assets        Asset[]
   builds        Build[]
   submissions   Submission[]
+  notifications SiteNotificationSettings?
 
   @@map("sites")
 }
@@ -269,18 +270,61 @@ model Asset {
 }
 
 model Submission {
-  id           String   @id @default(cuid())
-  siteId       String   @map("site_id")
-  form         String
-  data         Json
-  score        Int?
-  email        String?
-  clientRef    String?  @map("client_ref")
-  wantsContact Boolean  @default(false) @map("wants_contact")
-  createdAt    DateTime @default(now()) @map("created_at")
-  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  id             String        @id @default(cuid())
+  siteId         String        @map("site_id")
+  form           String
+  data           Json
+  score          Int?
+  email          String?
+  clientRef      String?       @map("client_ref")
+  wantsContact   Boolean       @default(false) @map("wants_contact")
+  // Mail notification outbox state. null = nothing to send (notifications off
+  // when the submission arrived); the worker retries `pending` rows.
+  notifyStatus   NotifyStatus? @map("notify_status")
+  notifyAttempts Int           @default(0) @map("notify_attempts")
+  notifyNextAt   DateTime?     @map("notify_next_at")
+  notifyError    String?       @map("notify_error")
+  notifiedAt     DateTime?     @map("notified_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  site           Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   @@index([siteId, form])
   @@index([siteId, clientRef])
+  @@index([notifyStatus, notifyNextAt])
   @@map("submissions")
+}
+
+enum NotifyStatus {
+  pending
+  sending
+  sent
+  failed
+}
+
+enum MailProvider {
+  smtp
+  microsoft
+  google
+}
+
+// Per-site submission mail notifications. Secrets (SMTP password, OAuth
+// refresh token) are stored AES-256-GCM encrypted with SECRETS_KEY.
+model SiteNotificationSettings {
+  siteId           String        @id @map("site_id")
+  enabled          Boolean       @default(false)
+  provider         MailProvider?
+  recipients       String[]      @default([])
+  fromAddress      String?       @map("from_address")
+  smtpHost         String?       @map("smtp_host")
+  smtpPort         Int?          @map("smtp_port")
+  smtpSecure       Boolean       @default(false) @map("smtp_secure")
+  smtpUser         String?       @map("smtp_user")
+  smtpPasswordEnc  String?       @map("smtp_password_enc")
+  oauthAccount     String?       @map("oauth_account")
+  oauthRefreshEnc  String?       @map("oauth_refresh_enc")
+  oauthConnectedAt DateTime?     @map("oauth_connected_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  site             Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("site_notification_settings")
 }

@@ -54,6 +54,18 @@ export const config = {
   // Default false (dev/direct). In staging/prod set to the proxy/subnet, e.g.
   // "172.16.0.0/12" or the nginx container IP. Never leave "true" exposed.
   TRUST_PROXY: optional("TRUST_PROXY", ""),
+
+  // Submission mail notifications. SECRETS_KEY encrypts stored SMTP
+  // passwords and OAuth refresh tokens; without it no mail secret can be saved.
+  SECRETS_KEY: optional("SECRETS_KEY", ""),
+  // OAuth apps for "Connect Microsoft 365" / "Connect Google". Redirect URI to
+  // register: <ADMIN_PUBLIC_URL>/api/oauth/mail/{microsoft|google}/callback
+  MS_OAUTH_CLIENT_ID: optional("MS_OAUTH_CLIENT_ID", ""),
+  MS_OAUTH_CLIENT_SECRET: optional("MS_OAUTH_CLIENT_SECRET", ""),
+  MS_OAUTH_TENANT: optional("MS_OAUTH_TENANT", "common"),
+  GOOGLE_OAUTH_CLIENT_ID: optional("GOOGLE_OAUTH_CLIENT_ID", ""),
+  GOOGLE_OAUTH_CLIENT_SECRET: optional("GOOGLE_OAUTH_CLIENT_SECRET", ""),
+  NOTIFY_POLL_MS: parseInt(optional("NOTIFY_POLL_MS", "30000"), 10),
 } as const;
 
 export type Config = typeof config;

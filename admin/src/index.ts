@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import { startLayoutWatcher } from "./services/layout-watcher.js";
 import { startAssetWatcher } from "./services/asset-watcher.js";
 import { log } from "./logging.js";
+import { startNotificationWorker } from "./services/mail/submission-notifier.js";
 
 const app = await buildApp();
 
@@ -16,3 +17,4 @@ try {
 
 startLayoutWatcher(app.prisma, config.LAYOUTS_DIR, app.layoutModuleCache);
 startAssetWatcher(app.prisma, config.ASSETS_DIR);
+startNotificationWorker(app);
