@@ -85,6 +85,39 @@ describe("CLI posts", () => {
     expect((await push([file({ title: "Changed" })], true)).statusCode).toBe(200);
     expect((await getPost()).translations.de).toMatchObject({ title: "Changed", status: "draft" });
   });
+  it.each([false, true])("keeps an identical published re-push unchanged with draft=%s", async (draft) => {
+    for (const entry of [file(), imageFile({ html: '<p><a href="/news">News</a></p><IMG SRC="./img/a.png" ALT="Map">' })]) {
+      expect((await push([entry], true, media)).statusCode).toBe(200);
+      await publish();
+      const before = await getPost();
+      const response = await push([entry], draft, media);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ posts: [{ key: "routing", locale: "de", action: "unchanged" }] });
+      expect((await getPost()).translations.de.status).toBe("published");
+      expect(await getPost()).toEqual(before);
+    }
+  });
+  it.each([
+    { title: "Changed" }, { slug: "changed" }, { excerpt: "Changed" }, { html: "<p>Changed</p>" },
+    { cover: "/assets/changed.png" }, { metaTitle: "Changed" }, { metaDescription: "Changed" },
+  ])("refuses a single changed published field without draft: %j", async (change) => {
+    await push(); await publish();
+    const before = await getPost();
+    expect((await push([file(change)])).statusCode).toBe(422);
+    expect(await getPost()).toEqual(before);
+  });
+  it("keeps unchanged published locales when another pushed locale changes with draft", async () => {
+    await push([file(), file({ locale: "en" })]); await publish(); await publish("en");
+    const before = await getPost();
+    const response = await push([file(), file({ locale: "en", title: "Changed" })], true);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().posts).toEqual([
+      { key: "routing", locale: "de", action: "unchanged" }, { key: "routing", locale: "en", action: "updated" },
+    ]);
+    const after = await getPost();
+    expect(after.translations.de).toEqual(before.translations.de);
+    expect(after.translations.en).toMatchObject({ title: "Changed", status: "draft" });
+  });
   it("refuses shared-field change on a live post and drafts every published translation with draft", async () => {
     await push([file(), file({ locale: "en", source: "routing.en.md" })]); await publish(); await publish("en");
     const change = file({ category: "insights" });
@@ -101,7 +134,7 @@ describe("CLI posts", () => {
     expect((await push([file({ locale: "en", tags: [] })], true)).statusCode).toBe(200);
     expect((await getPost()).translations.de.status).toBe("draft");
   });
-  it.each(["script", "div"])("rejects raw html that the sanitizer strips: %s before storing media", async (tag) => {
+  it.each(["script", "div", "iframe"])("rejects raw html that the sanitizer strips: %s before storing media", async (tag) => {
     const response = await push([imageFile({ html: `<${tag}>Oops</${tag}><img src="./img/a.png" alt="Map">` })], false, media);
     expect(response.statusCode).toBe(422);
     expect(JSON.stringify(response.json().issues)).toContain(tag);
@@ -159,7 +192,7 @@ describe("CLI posts", () => {
   it("logs a committed outcome when draft demotes an omitted published translation", async () => {
     await push([file(), file({ locale: "en" })]); await publish();
     records.length = 0;
-    expect((await push([file({ locale: "en" })], true)).statusCode).toBe(200);
+    expect((await push([file({ locale: "en", tags: [] })], true)).statusCode).toBe(200);
     expect((await getPost()).translations.de.status).toBe("draft");
     expect(records.some((r) => r.op === "blog.push" && r.msg === "blog.push committed")).toBe(true);
     expect(records.some((r) => r.op === "blog.push" && r.msg.includes("NO-OP"))).toBe(false);

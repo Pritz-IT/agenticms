@@ -152,26 +152,30 @@ async function validateBatch(tx: Prisma.TransactionClient, site: PushSite, posts
     try {
       const old = existing.get(post.input.key);
       const input: PostInput = { ...post.input, translations: { ...post.input.translations } };
-      if (old && !draft) {
-        for (const file of post.files) {
-          if (old.translations[file.locale]?.status === "published") reject(file.source, "published", `Translation ${file.key}/${file.locale} is published; use draft: true`);
+      const sharedChange = old !== undefined && sharedChanged(old, input);
+      for (const [locale, translation] of Object.entries(input.translations)) {
+        source = post.files.find((file) => file.locale === locale)!.source;
+        const data = await validatePostInput(tx, site, { ...input, translations: { [locale]: translation } });
+        // Compare the same normalized content that savePostInTx persists, excluding publication state.
+        const { locale: validatedLocale, categoryId, status, ...fields } = data.translations[0];
+        const before = old?.translations[locale];
+        const changed = !before || Object.entries(fields).some(([field, value]) => before[field as keyof typeof fields] !== value);
+        if (changed && before?.status === "published" && !draft) {
+          reject(source, "published", `Translation ${input.key}/${locale} is published; use draft: true`);
         }
-        if (sharedChanged(old, input) && Object.values(old.translations).some((entry) => entry.status === "published")) {
-          reject(source, "published", `Shared fields of live post ${input.key} require draft: true`);
-        }
+        if (changed && draft) input.translations[locale] = { ...translation, status: "draft" };
       }
-      if (draft) {
+      source = post.files[0].source;
+      if (sharedChange && !draft && Object.values(old.translations).some((entry) => entry.status === "published")) {
+        reject(source, "published", `Shared fields of live post ${input.key} require draft: true`);
+      }
+      if (sharedChange && draft) {
         for (const [locale, translation] of Object.entries(old?.translations ?? {})) {
           if (translation.status === "published") {
             const { updatedAt, ...fields } = translation;
             input.translations[locale] = { ...fields, ...input.translations[locale], status: "draft" };
           }
         }
-        for (const [locale, translation] of Object.entries(input.translations)) input.translations[locale] = { ...translation, status: "draft" };
-      }
-      for (const [locale, translation] of Object.entries(input.translations)) {
-        source = post.files.find((file) => file.locale === locale)?.source ?? post.files[0].source;
-        await validatePostInput(tx, site, { ...input, translations: { [locale]: translation } });
       }
       source = post.files[0].source;
       const category = categories.find((entry) => entry.key === input.category)!;
