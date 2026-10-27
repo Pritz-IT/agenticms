@@ -10,6 +10,7 @@ import {
   deleteBlogPost,
   publishBlogTranslation,
   unpublishBlogTranslation,
+  uploadBlogPostMedia,
 } from "../api/blog";
 import { fetchLayouts } from "../api/layouts";
 import { fetchLocales } from "../api/locales";
@@ -26,6 +27,7 @@ import type {
 import { TopBar } from "../components/TopBar";
 import { LocaleTabs } from "../components/LocaleTabs";
 import { RichTextEditor } from "../components/RichTextEditor";
+import { ImagePicker } from "../components/ImagePicker";
 import { BlogSelect } from "../components/blog/BlogSelect";
 import { blogErrorMessage, showBlogError } from "../lib/blog-error";
 import { emptyTranslation, establishedSlugs, postDraft, postSaveInput, stagingPostUrl, updateTranslationTitle } from "../lib/blog-editor";
@@ -172,10 +174,7 @@ function PostEditor({
     settings.stagingDomain && savedTranslation
       ? stagingPostUrl(settings.stagingDomain, savedTranslation.url)
       : null;
-  const coverPreview =
-    settings.stagingDomain && /^\/(assets|media)\//.test(translation.coverImage ?? "")
-      ? `https://${settings.stagingDomain}${translation.coverImage}`
-      : null;
+  const mediaUpload = (file: File) => uploadBlogPostMedia(siteKey, post.key, file);
 
   function changeTranslation(fields: Partial<BlogTranslationInput>) {
     setDraft((current) => ({
@@ -406,31 +405,20 @@ function PostEditor({
                 key={selectedLocale}
                 value={translation.body}
                 onChange={(body) => changeTranslation({ body })}
+                mediaUpload={mediaUpload}
               />
             </div>
-            {/* Task 17 replaces this path field with the post-media upload/asset picker. */}
-            <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-              Cover image
-              <input
-                className={inputClass}
-                placeholder="/assets/… or /media/…"
-                pattern="/(assets|media)/.*"
+            <div role="group" aria-label="Cover image" className="space-y-1.5">
+              <p className="text-sm text-zinc-400">Cover image</p>
+              <ImagePicker
+                key={selectedLocale}
+                siteKey={siteKey}
                 value={translation.coverImage ?? ""}
-                onChange={(event) => changeTranslation({ coverImage: event.target.value || null })}
+                onChange={(coverImage) => changeTranslation({ coverImage: coverImage || null })}
+                mediaUpload={mediaUpload}
+                allowCustomUrl={false}
               />
-            </label>
-            {coverPreview && (
-              <figure>
-                <img
-                  src={coverPreview}
-                  alt="Cover preview"
-                  className="max-h-52 max-w-full rounded object-contain"
-                />
-                <figcaption className="mt-1 text-xs text-zinc-500">
-                  Preview from the latest staging build.
-                </figcaption>
-              </figure>
-            )}
+            </div>
             <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
               Meta title
               <input

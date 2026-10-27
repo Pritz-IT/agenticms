@@ -2,11 +2,15 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, Check, ImageIcon, Link as LinkIcon } from "lucide-react";
 import { fetchAssetLibrary, uploadAsset } from "../api/assets";
+import { AuthedImage } from "./AuthedImage";
+import { showBlogError } from "../lib/blog-error";
 
 interface ImagePickerProps {
   siteKey: string;
   value: string;
   onChange: (url: string) => void;
+  mediaUpload?: (file: File) => Promise<string>;
+  allowCustomUrl?: boolean;
 }
 
 type Mode = "library" | "url";
@@ -20,10 +24,10 @@ function detectMode(value: string): Mode {
   return "library";
 }
 
-export function ImagePicker({ siteKey, value, onChange }: ImagePickerProps) {
+export function ImagePicker({ siteKey, value, onChange, mediaUpload, allowCustomUrl = true }: ImagePickerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
-  const [mode, setMode] = useState<Mode>(() => detectMode(value));
+  const [mode, setMode] = useState<Mode>(() => allowCustomUrl ? detectMode(value) : "library");
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   const assetLibraryQuery = useQuery({
@@ -32,14 +36,17 @@ export function ImagePicker({ siteKey, value, onChange }: ImagePickerProps) {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadAsset(siteKey, file),
-    onSuccess: (asset) => {
-      qc.invalidateQueries({ queryKey: ["assets", siteKey] });
-      qc.invalidateQueries({ queryKey: ["asset-library", siteKey] });
-      onChange(asset.filePath);
+    mutationFn: async (file: File) => mediaUpload ? mediaUpload(file) : (await uploadAsset(siteKey, file)).filePath,
+    onSuccess: (url) => {
+      if (!mediaUpload) {
+        qc.invalidateQueries({ queryKey: ["assets", siteKey] });
+        qc.invalidateQueries({ queryKey: ["asset-library", siteKey] });
+      }
+      onChange(url);
       setMode("library");
       setLibraryOpen(false);
     },
+    onError: (error) => showBlogError("upload image", error),
   });
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -67,28 +74,33 @@ export function ImagePicker({ siteKey, value, onChange }: ImagePickerProps) {
           icon={<ImageIcon className="h-3.5 w-3.5" />}
           label="Library"
         />
-        <TabButton
-          active={mode === "url"}
-          onClick={() => setMode("url")}
-          icon={<LinkIcon className="h-3.5 w-3.5" />}
-          label="Custom URL"
-        />
+        {allowCustomUrl && (
+          <TabButton
+            active={mode === "url"}
+            onClick={() => setMode("url")}
+            icon={<LinkIcon className="h-3.5 w-3.5" />}
+            label="Custom URL"
+          />
+        )}
       </div>
 
       {/* Shared preview — visible whenever there's a value, regardless of mode */}
       {value && (
         <div className="flex items-center gap-3 p-2 border border-cyan-700/50 rounded bg-cyan-950/20">
-          <img
+          <AuthedImage
+            siteKey={siteKey}
             src={value}
             alt="Selected"
             className="w-12 h-12 object-cover rounded border border-neutral-700 bg-neutral-900"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-            }}
           />
           <p className="text-xs text-neutral-400 truncate flex-1 min-w-0">
             {mode === "url" ? value : value.split("/").pop()}
           </p>
+          {!allowCustomUrl && (
+            <button type="button" className="text-xs text-neutral-400 hover:text-white" onClick={() => onChange("")}>
+              Remove
+            </button>
+          )}
         </div>
       )}
 
@@ -97,7 +109,8 @@ export function ImagePicker({ siteKey, value, onChange }: ImagePickerProps) {
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
+            accept={mediaUpload ? "image/png,image/jpeg,image/webp,image/gif" : "image/*"}
+            aria-label="Upload image"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -156,7 +169,11 @@ export function ImagePicker({ siteKey, value, onChange }: ImagePickerProps) {
                 <p className="text-xs text-neutral-500 text-center py-4">Loading assets...</p>
               )}
 
-              {!assetLibraryQuery.isLoading && images.length === 0 && (
+              {assetLibraryQuery.isError && (
+                <p role="alert" className="text-xs text-red-400">Could not load the asset library.</p>
+              )}
+
+              {assetLibraryQuery.isSuccess && images.length === 0 && (
                 <p className="text-xs text-neutral-500 text-center py-2">No images uploaded yet</p>
               )}
             </>

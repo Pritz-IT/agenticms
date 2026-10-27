@@ -1,14 +1,16 @@
 import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { richTextExtensions } from "./rich-text-extensions";
+import { ImagePicker } from "./ImagePicker";
+import { DEFAULT_SITE_KEY } from "../site-routing";
+import "./rich-text-editor.css";
 
 interface RichTextEditorProps {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  mediaUpload?: (file: File) => Promise<string>;
 }
 
 function ToolbarButton({
@@ -27,7 +29,9 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       title={title}
-      className={`px-2 py-1 text-sm rounded transition-colors ${
+      aria-label={title}
+      aria-pressed={active}
+      className={`px-2 py-1 text-sm rounded transition-colors focus-visible:outline focus-visible:outline-cyan-500 ${
         active
           ? "bg-neutral-600 text-white"
           : "text-neutral-400 hover:bg-neutral-700 hover:text-white"
@@ -38,14 +42,15 @@ function ToolbarButton({
   );
 }
 
-export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange, placeholder, mediaUpload }: RichTextEditorProps) {
+  const { siteKey = DEFAULT_SITE_KEY } = useParams();
+  const [imageOpen, setImageOpen] = useState(false);
+  const [imageSrc, setImageSrc] = useState("");
+  const [alt, setAlt] = useState("");
+  const [caption, setCaption] = useState("");
+  const altInput = useRef<HTMLInputElement>(null);
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false }),
-      Image,
-      Placeholder.configure({ placeholder: placeholder ?? "Start typing…" }),
-    ],
+    extensions: richTextExtensions({ placeholder, postMedia: !!mediaUpload }),
     content: value,
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
@@ -72,14 +77,27 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
   };
 
   const insertImage = () => {
-    const url = window.prompt("Enter image URL");
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+    if (!alt.trim()) {
+      altInput.current?.setCustomValidity("Describe the image before inserting it.");
+      altInput.current?.reportValidity();
+      return;
     }
+    if (!imageSrc) return;
+    editor.chain().focus().insertContent({
+      type: "figure",
+      content: [
+        { type: "image", attrs: { src: imageSrc, alt: alt.trim() } },
+        ...(caption.trim() ? [{ type: "figcaption", content: [{ type: "text", text: caption.trim() }] }] : []),
+      ],
+    }).run();
+    setImageOpen(false);
+    setImageSrc("");
+    setAlt("");
+    setCaption("");
   };
 
   return (
-    <div className="border border-neutral-700 rounded overflow-hidden">
+    <div className="min-w-0 border border-neutral-700 rounded overflow-hidden">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-neutral-800 border-b border-neutral-700">
         <ToolbarButton
@@ -96,23 +114,9 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
         >
           <em>I</em>
         </ToolbarButton>
-        <ToolbarButton
-          title="Strikethrough"
-          active={editor.isActive("strike")}
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-        >
-          <s>S</s>
-        </ToolbarButton>
 
         <span className="w-px h-5 bg-neutral-600 mx-1" />
 
-        <ToolbarButton
-          title="Heading 1"
-          active={editor.isActive("heading", { level: 1 })}
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-        >
-          H1
-        </ToolbarButton>
         <ToolbarButton
           title="Heading 2"
           active={editor.isActive("heading", { level: 2 })}
@@ -126,6 +130,10 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
           onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         >
           H3
+        </ToolbarButton>
+        <ToolbarButton title="Heading 4" active={editor.isActive("heading", { level: 4 })}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}>
+          H4
         </ToolbarButton>
 
         <span className="w-px h-5 bg-neutral-600 mx-1" />
@@ -173,17 +181,48 @@ export function RichTextEditor({ value, onChange, placeholder }: RichTextEditorP
         </ToolbarButton>
         <ToolbarButton
           title="Image"
-          active={false}
-          onClick={insertImage}
+          active={imageOpen}
+          onClick={() => setImageOpen(!imageOpen)}
         >
           Image
         </ToolbarButton>
+        <ToolbarButton title="Insert table" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>
+          Table
+        </ToolbarButton>
+        {editor.isActive("table") && <>
+          <ToolbarButton title="Add row" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</ToolbarButton>
+          <ToolbarButton title="Remove row" onClick={() => editor.chain().focus().deleteRow().run()}>− Row</ToolbarButton>
+          <ToolbarButton title="Add column" onClick={() => editor.chain().focus().addColumnAfter().run()}>+ Column</ToolbarButton>
+          <ToolbarButton title="Remove column" onClick={() => editor.chain().focus().deleteColumn().run()}>− Column</ToolbarButton>
+          <ToolbarButton title="Toggle header row" onClick={() => editor.chain().focus().toggleHeaderRow().run()}>Header row</ToolbarButton>
+        </>}
       </div>
+
+      {imageOpen && (
+        <div role="group" aria-label="Insert image" className="space-y-3 border-b border-neutral-700 bg-neutral-900 p-4">
+          <ImagePicker siteKey={siteKey} value={imageSrc} onChange={setImageSrc} mediaUpload={mediaUpload} allowCustomUrl={false} />
+          <label className="flex flex-col gap-1 text-sm text-neutral-400">
+            Alt text (required)
+            <input ref={altInput} aria-required="true" value={alt} onChange={(event) => {
+              event.target.setCustomValidity("");
+              setAlt(event.target.value);
+            }} placeholder="Describe what the image shows" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-neutral-400">
+            Caption (optional)
+            <input value={caption} onChange={(event) => setCaption(event.target.value)} />
+          </label>
+          <div className="flex gap-2">
+            <button type="button" disabled={!imageSrc} onClick={insertImage} className="ui-button ui-button-primary">Insert image</button>
+            <button type="button" onClick={() => setImageOpen(false)} className="ui-button">Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* Editor area */}
       <EditorContent
         editor={editor}
-        className="prose prose-invert prose-sm max-w-none p-4 focus:outline-none"
+        className="rich-text-editor prose prose-invert prose-sm max-w-none overflow-x-auto p-4 focus:outline-none"
         style={{ minHeight: 200 }}
       />
     </div>

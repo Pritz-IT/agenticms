@@ -72,6 +72,13 @@ export function deleteBlogPost(siteKey: string, key: string): Promise<{ ok: true
   return api(postPath(siteKey, key), { method: "DELETE" });
 }
 
+export async function uploadBlogPostMedia(siteKey: string, key: string, file: File): Promise<string> {
+  const body = new FormData();
+  body.append("file", file);
+  const result = await api<{ url: string }>(`${postPath(siteKey, key)}/media`, { method: "POST", body });
+  return result.url;
+}
+
 export function publishBlogTranslation(siteKey: string, key: string, locale: string): Promise<BlogPost> {
   return api(`${postPath(siteKey, key)}/translations/${encodeURIComponent(locale)}/publish`, {
     method: "POST",
