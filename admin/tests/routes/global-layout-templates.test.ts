@@ -7,6 +7,7 @@ import { buildApp } from "../../src/app.js";
 import { config } from "../../src/config.js";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
 import { syncGlobalLayoutBatch } from "../../src/services/global-layout-templates.js";
+import { createBlogFixture } from "../helpers/blog.js";
 import { syncGlobalAssetBatch } from "../../src/services/global-assets.js";
 
 let app: FastifyInstance;
@@ -48,6 +49,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await app.prisma.blogPost.deleteMany();
+  await app.prisma.blogCategory.deleteMany();
   await app.prisma.content.deleteMany();
   await app.prisma.page.deleteMany();
   await app.prisma.layout.deleteMany();
@@ -271,4 +274,54 @@ describe("global layout template routes", () => {
     expect(after.statusCode).toBe(200);
     expect(after.json()[0].globalTemplate.differsFromSiteCopy).toBe(false);
   });
+});
+
+
+describe("global template kind guards", () => {
+  it.each(["copy", "copy-from-global"])("rejects a used post kind change through %s before overwriting the site file", async (action) => {
+    const site = await app.prisma.site.findUniqueOrThrow({ where: { key: "sample" } });
+    const { layout } = await createBlogFixture(app, site.id);
+    const source = 'export const layoutKind = "post"; export const keys = { "title": { type: "text", initial: "Post" } }; export default function Post() { return <main />; }';
+    await syncGlobalLayoutBatch(app, [{ path: "sample-template/Post.tsx", content: source }]);
+    const template = await app.prisma.globalLayoutTemplate.findFirstOrThrow();
+    await app.prisma.layout.update({ where: { id: layout.id }, data: { globalTemplateId: template.id } });
+    const initial = await app.inject({ method: "POST", url: `/api/sites/sample/layouts/${layout.id}/copy-from-global`, headers: { authorization: `Bearer ${adminToken}` } });
+    expect(initial.statusCode).toBe(200);
+    await syncGlobalLayoutBatch(app, [{ path: template.filePath, content: source.replace('export const layoutKind = "post";', '') }]);
+    expect(await readFile(join(config.LAYOUTS_DIR, "sample", layout.filePath), "utf8")).toBe(source);
+    const response = await app.inject({ method: "POST",
+      url: action === "copy" ? `/api/sites/sample/global-layout-templates/${template.id}/copy` : `/api/sites/sample/layouts/${layout.id}/copy-from-global`,
+      headers: { authorization: `Bearer ${adminToken}` }, payload: { destinationPath: layout.filePath } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("news");
+    expect(await readFile(join(config.LAYOUTS_DIR, "sample", layout.filePath), "utf8")).toBe(source);
+    expect((await app.prisma.layout.findUniqueOrThrow({ where: { id: layout.id } })).kind).toBe("post");
+  });
+});
+
+
+it("copies a global post template with zero chrome keys", async () => {
+  await syncGlobalLayoutBatch(app, [{ path: "sample-template/Post.tsx", content: 'export const layoutKind = "post"; export default function Post() { return <main />; }' }]);
+  const template = await app.prisma.globalLayoutTemplate.findFirstOrThrow();
+  const response = await app.inject({ method: "POST", url: `/api/sites/sample/global-layout-templates/${template.id}/copy`,
+    headers: { authorization: `Bearer ${adminToken}` }, payload: { destinationPath: "Post.tsx" } });
+  expect(response.statusCode).toBe(201);
+  expect(response.json()).toMatchObject({ kind: "post", detectedKeys: {} });
+});
+
+it("preflights template helpers before overwriting any site file", async () => {
+  const site = await app.prisma.site.findUniqueOrThrow({ where: { key: "sample" } });
+  const { layout } = await createBlogFixture(app, site.id);
+  await app.prisma.layout.update({ where: { id: layout.id }, data: { filePath: "components/Post.tsx" } });
+  const template = await syncHomeTemplate("Initial");
+  const copyUrl = `/api/sites/sample/global-layout-templates/${template.id}/copy`;
+  const initial = await app.inject({ method: "POST", url: copyUrl, headers: { authorization: `Bearer ${adminToken}` }, payload: { destinationPath: "Home.tsx" } });
+  expect(initial.statusCode).toBe(201);
+  const before = await readFile(join(config.LAYOUTS_DIR, "sample", "Home.tsx"), "utf8");
+  await syncGlobalLayoutBatch(app, [{ path: "sample-template/components/Post.tsx", content: 'export default function Helper() { return <main />; }' }]);
+  const response = await app.inject({ method: "POST", url: copyUrl, headers: { authorization: `Bearer ${adminToken}` }, payload: { destinationPath: "Home.tsx" } });
+  expect(response.statusCode).toBe(409);
+  expect(response.json().error).toContain("category news");
+  expect(await readFile(join(config.LAYOUTS_DIR, "sample", "Home.tsx"), "utf8")).toBe(before);
+  await expect(readFile(join(config.LAYOUTS_DIR, "sample", "components/Post.tsx"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 });

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { copyGlobalTemplateToSite } from "../services/global-layout-templates.js";
+import { LayoutInUseError } from "../services/blog/layout-kind.js";
 
 interface CopyBody {
   destinationPath?: string;
@@ -30,7 +31,7 @@ export async function siteGlobalLayoutTemplateRoutes(app: FastifyInstance) {
         return reply.status(201).send(layout);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return reply.status(errorStatus(message)).send({ error: message });
+        return reply.status(err instanceof LayoutInUseError ? 409 : errorStatus(message)).send({ error: message });
       }
     }
   );

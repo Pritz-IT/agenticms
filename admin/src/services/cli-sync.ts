@@ -5,6 +5,8 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { MIME_BY_EXT, syncAssets } from "./asset-watcher.js";
+import { assertLayoutChangesAllowed, LayoutInUseError } from "./blog/layout-kind.js";
+import { parseLayoutKind } from "./layout-parser.js";
 import { handleFile } from "./layout-watcher.js";
 
 const TEXT_LAYOUT_EXTENSIONS = new Set([".tsx", ".ts"]);
@@ -160,43 +162,95 @@ export async function exportLayoutFiles(root = config.LAYOUTS_DIR): Promise<Expo
   return exported;
 }
 
+export async function preflightLayoutSync(
+  app: FastifyInstance,
+  root: string,
+  files: TextSyncFile[],
+  site?: SyncSite
+): Promise<TextSyncFile[]> {
+  const validated = files.map((file) => {
+    const path = validateRelativePath(file.path, TEXT_LAYOUT_EXTENSIONS);
+    if (typeof file.content !== "string") throw new Error(`content must be a string for ${path}`);
+    return { path, content: file.content };
+  });
+  const changes: { filePath: string; nextKind: "page" | "post" | null }[] = validated
+    .filter((file) => extname(file.path).toLowerCase() === ".tsx")
+    .map((file) => ({ filePath: file.path, nextKind: parseLayoutKind(file.content) }));
+  // Helper-only batches do not prune; a batch containing TSX replaces the layout set.
+  if (changes.length > 0) {
+    const keepPaths = new Set(validated.map((file) => file.path));
+    for (const filePath of await listLayoutFiles(root)) {
+      if (!keepPaths.has(filePath)) changes.push({ filePath, nextKind: null });
+    }
+  }
+  if (site) {
+    await assertLayoutChangesAllowed(app.prisma, site.id, changes);
+  } else {
+    const sites = await app.prisma.site.findMany({ select: { id: true, key: true } });
+    const defaultSite = sites.find((candidate) => candidate.key === DEFAULT_SITE_KEY);
+    for (const candidate of sites) {
+      const scopedChanges = changes.flatMap((change) => {
+        const [prefix, ...rest] = change.filePath.split("/");
+        const pathSite = sites.find((entry) => entry.key === prefix);
+        if ((pathSite ?? defaultSite)?.id !== candidate.id) return [];
+        return [{ ...change, filePath: pathSite ? rest.join("/") : change.filePath }];
+      });
+      await assertLayoutChangesAllowed(app.prisma, candidate.id, scopedChanges);
+    }
+  }
+  return validated;
+}
+
 export async function syncLayoutBatch(app: FastifyInstance, files: TextSyncFile[]): Promise<LayoutSyncResult> {
-  const results: FileSyncResult[] = [];
-  const changedHelpers: string[] = [];
-  const changedLayouts = new Set<string>();
-  const syncedPaths = new Set<string>();
+  const context = { op: "layout.sync.legacy", count: files.length };
+  app.log.info(context, `${context.op} requested`);
+  try {
+    files = await preflightLayoutSync(app, config.LAYOUTS_DIR, files);
+    const results: FileSyncResult[] = [];
+    const changedHelpers: string[] = [];
+    const changedLayouts = new Set<string>();
+    const syncedPaths = new Set<string>();
 
-  for (const file of files) {
-    const relPath = validateRelativePath(file.path, TEXT_LAYOUT_EXTENSIONS);
-    syncedPaths.add(relPath);
-    if (typeof file.content !== "string") throw new Error(`content must be a string for ${relPath}`);
-    const fullPath = await writeTextFileAtomic(config.LAYOUTS_DIR, relPath, file.content);
-    const ext = extname(relPath).toLowerCase();
+    for (const file of files) {
+      const relPath = file.path;
+      syncedPaths.add(relPath);
+      const fullPath = await writeTextFileAtomic(config.LAYOUTS_DIR, relPath, file.content);
+      const ext = extname(relPath).toLowerCase();
 
-    if (ext === ".tsx") {
-      await handleFile(app.prisma, fullPath, app.layoutModuleCache, { storedFilePath: relPath });
-      changedLayouts.add(relPath);
-      results.push({ path: relPath, status: "compiled" });
+      if (ext === ".tsx") {
+        await handleFile(app.prisma, fullPath, app.layoutModuleCache, { storedFilePath: relPath });
+        changedLayouts.add(relPath);
+        results.push({ path: relPath, status: "compiled" });
+      } else {
+        changedHelpers.push(relPath);
+        results.push({ path: relPath, status: "written" });
+      }
+    }
+
+    if (changedLayouts.size > 0) {
+      await pruneStaleLayoutFiles(config.LAYOUTS_DIR, syncedPaths);
+    }
+
+    const recompiled: string[] = [];
+    if (changedHelpers.length > 0) {
+      for (const relPath of await listLayoutFiles(config.LAYOUTS_DIR)) {
+        if (changedLayouts.has(relPath)) continue;
+        await handleFile(app.prisma, pathWithinRoot(config.LAYOUTS_DIR, relPath), app.layoutModuleCache, { storedFilePath: relPath });
+        recompiled.push(relPath);
+      }
+    }
+
+    app.log.info(context, files.length ? "layout.sync.legacy done" : "layout.sync.legacy NO-OP — empty batch");
+    return { files: results, recompiled };
+  } catch (err) {
+    if (err instanceof LayoutInUseError) {
+      app.log.warn({ ...context, err }, `${context.op} rejected`);
+      app.log.info(context, `${context.op} NO-OP — layout in use`);
     } else {
-      changedHelpers.push(relPath);
-      results.push({ path: relPath, status: "written" });
+      app.log.error({ ...context, err }, `${context.op} failed`);
     }
+    throw err;
   }
-
-  if (changedLayouts.size > 0) {
-    await pruneStaleLayoutFiles(config.LAYOUTS_DIR, syncedPaths);
-  }
-
-  const recompiled: string[] = [];
-  if (changedHelpers.length > 0) {
-    for (const relPath of await listLayoutFiles(config.LAYOUTS_DIR)) {
-      if (changedLayouts.has(relPath)) continue;
-      await handleFile(app.prisma, pathWithinRoot(config.LAYOUTS_DIR, relPath), app.layoutModuleCache, { storedFilePath: relPath });
-      recompiled.push(relPath);
-    }
-  }
-
-  return { files: results, recompiled };
 }
 
 async function requireDefaultSite(app: FastifyInstance): Promise<SyncSite> {

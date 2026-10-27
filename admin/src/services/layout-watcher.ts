@@ -7,6 +7,7 @@ import { parseLayoutKeys, parseLayoutKind, extractLayoutName, type LayoutKeys } 
 import { compileLayout } from "./layout-compiler.js";
 import type { LayoutModuleCache } from "./layout-module-cache.js";
 import { log } from "../logging.js";
+import { assertLayoutChangesAllowed, LayoutInUseError, legacyLayoutFilePaths, isAbsoluteStoredLayoutPath } from "./blog/layout-kind.js";
 import { lockSiteRoutes } from "./blog/route-lock.js";
 
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
@@ -30,31 +31,6 @@ function canonicalLayoutFilePath(filePath: string): string {
     : normalized;
 }
 
-function legacyLayoutFilePath(filePath: string): string | null {
-  if (filePath.startsWith("/") || /^[A-Za-z]:\//.test(filePath)) return null;
-  return `${LEGACY_LAYOUT_PREFIX}${filePath}`;
-}
-
-function legacyLayoutFilePaths(filePath: string, extraCandidates: string[] = []): string[] {
-  const normalized = filePath.replace(/\\/g, "/");
-  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) return [...new Set(extraCandidates)];
-
-  const candidates: string[] = [...extraCandidates];
-  const basename = normalized.split("/").at(-1);
-  if (basename && basename !== normalized) {
-    candidates.push(basename, `${LEGACY_LAYOUT_PREFIX}${basename}`);
-  }
-
-  const directLegacy = legacyLayoutFilePath(normalized);
-  if (directLegacy) candidates.push(directLegacy);
-
-  return [...new Set(candidates)].filter((candidate) => candidate !== normalized);
-}
-
-function isAbsoluteStoredLayoutPath(filePath: string): boolean {
-  return filePath.startsWith("/") || /^[A-Za-z]:\//.test(filePath);
-}
-
 async function upsertCanonicalLayout(
   prisma: PrismaClient,
   siteId: string,
@@ -65,6 +41,7 @@ async function upsertCanonicalLayout(
   extraLegacyFilePaths: string[] = []
 ) {
   const kind = parseLayoutKind(source);
+  await assertLayoutChangesAllowed(prisma, siteId, [{ filePath, nextKind: kind }]);
   const legacyFilePaths = legacyLayoutFilePaths(filePath, extraLegacyFilePaths);
   const basename = filePath.replace(/\\/g, "/").split("/").at(-1);
   const [canonicalLayout, explicitLegacyLayouts, basenameLegacyLayouts] = await Promise.all([
@@ -187,7 +164,7 @@ export async function handleFile(
   }
 
   const detectedKeys = parseLayoutKeys(content);
-  if (Object.keys(detectedKeys).length === 0) {
+  if (Object.keys(detectedKeys).length === 0 && parseLayoutKind(content) !== "post") {
     log.info({ component: "layout-watcher", filePath }, "layout NO-OP — no keys found, skipped");
     return;
   }
@@ -204,7 +181,16 @@ export async function handleFile(
     detectedKeys,
     content,
     options.staleFilePaths
-  );
+  ).catch((err) => {
+    const context = { component: "layout-watcher", op: "layout.upsert", siteId: site.id, storedFilePath };
+    if (err instanceof LayoutInUseError) {
+      log.warn({ ...context, err }, "layout upsert rejected");
+      log.info(context, "layout upsert NO-OP — layout in use");
+    } else {
+      log.error({ ...context, err }, "layout upsert failed");
+    }
+    throw err;
+  });
   if (moduleCache) {
     for (const evictedLayoutId of evictedLayoutIds) {
       await moduleCache.evict(evictedLayoutId);

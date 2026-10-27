@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { access, mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { buildApp } from "../../src/app.js";
 import { config } from "../../src/config.js";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
+import { createBlogFixture } from "../helpers/blog.js";
 import { issueCliToken } from "../helpers/cli.js";
 
 vi.mock("../../src/services/build.service.js", async (importOriginal) => ({
@@ -63,6 +64,8 @@ beforeEach(async () => {
   await rm(compiledLayoutsDir, { recursive: true, force: true });
   await mkdir(layoutsDir, { recursive: true });
   await mkdir(assetsDir, { recursive: true });
+  await app.prisma.blogPost.deleteMany();
+  await app.prisma.blogCategory.deleteMany();
   await app.prisma.content.deleteMany();
   await app.prisma.page.deleteMany();
   await app.prisma.layout.deleteMany();
@@ -726,5 +729,107 @@ describe("CLI sync routes", () => {
       target: "staging",
       coalesced: true,
     });
+  });
+});
+
+
+describe("layout kind sync guards", () => {
+  const postSource = 'export const layoutKind = "post"; export const keys = {}; export default function Post() { return <main />; }';
+  const pageSource = 'export const keys = { "title": { type: "text", initial: "Page" } }; export default function Page() { return <main />; }';
+
+  it.each(["/api/cli/sync/layouts", "/api/sites/demo/cli/sync/layouts"])("rejects a used post kind change before any batch write via %s", async (url) => {
+    const { layout } = await createBlogFixture(app, demoSiteId);
+    await mkdir(join(layoutsDir, "demo"), { recursive: true });
+    await writeFile(join(layoutsDir, "demo", layout.filePath), postSource);
+    const response = await app.inject({ method: "POST", url, headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "helper.ts", content: "export const value = 1;" }, { path: layout.filePath, content: pageSource }],
+    } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("news");
+    expect(await readFile(join(layoutsDir, "demo", layout.filePath), "utf8")).toBe(postSource);
+    expect(await fileExists(join(layoutsDir, "demo", "helper.ts"))).toBe(false);
+    expect((await app.prisma.layout.findUniqueOrThrow({ where: { id: layout.id } })).kind).toBe("post");
+  });
+
+  it("rejects pruning a used post layout before writing other files", async () => {
+    const { layout } = await createBlogFixture(app, demoSiteId);
+    await mkdir(join(layoutsDir, "demo"), { recursive: true });
+    await writeFile(join(layoutsDir, "demo", layout.filePath), postSource);
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "Other.tsx", content: pageSource }],
+    } });
+    expect(response.statusCode).toBe(409);
+    expect(await readFile(join(layoutsDir, "demo", layout.filePath), "utf8")).toBe(postSource);
+    expect(await fileExists(join(layoutsDir, "demo", "Other.tsx"))).toBe(false);
+  });
+
+  it("registers a post layout without chrome keys", async () => {
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "Post.tsx", content: postSource }],
+    } });
+    expect(response.statusCode).toBe(200);
+    expect(await app.prisma.layout.findFirst({ where: { siteId: demoSiteId, filePath: "Post.tsx" } })).toMatchObject({ kind: "post", detectedKeys: {} });
+  });
+
+  it("rejects post layouts in CLI page create and update", async () => {
+    const { layout, page } = await createBlogFixture(app, demoSiteId);
+    for (const method of ["POST", "PATCH"] as const) {
+      const response = await app.inject({ method, url: `/api/sites/demo/cli/pages${method === "PATCH" ? `/${page.id}` : ""}`,
+        headers: { authorization: `Bearer ${cliToken}` }, payload: { path: "/other", layout: layout.filePath } });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(await app.prisma.page.findFirst({ where: { siteId: demoSiteId, path: "/other" } })).toBeNull();
+  });
+});
+
+
+describe("layout kind preflight edge cases", () => {
+  const postSource = 'export const layoutKind = "post"; export default function Post() { return <main />; }';
+  const pageSource = 'export const keys = { "title": { type: "text", initial: "Page" } }; export default function Page() { return <main />; }';
+
+  it("rejects changing a used page layout to post before writing", async () => {
+    const layout = await app.prisma.layout.create({ data: { siteId: demoSiteId, name: "Home", filePath: "Home.tsx" } });
+    await app.prisma.page.create({ data: { siteId: demoSiteId, path: "/home", layoutId: layout.id } });
+    await mkdir(join(layoutsDir, "demo"), { recursive: true });
+    await writeFile(join(layoutsDir, "demo", layout.filePath), pageSource);
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: layout.filePath, content: postSource }],
+    } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain("page /home");
+    expect(await readFile(join(layoutsDir, "demo", layout.filePath), "utf8")).toBe(pageSource);
+  });
+
+  it.each(["demo/Post.tsx", "/layouts/Post.tsx", "/old/layouts/Post.tsx"])("guards a used legacy layout stored as %s before migration", async (filePath) => {
+    const { layout } = await createBlogFixture(app, demoSiteId);
+    await app.prisma.layout.update({ where: { id: layout.id }, data: { filePath } });
+    await mkdir(join(layoutsDir, "demo"), { recursive: true });
+    await writeFile(join(layoutsDir, "demo", "Post.tsx"), postSource);
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "Post.tsx", content: pageSource }],
+    } });
+    expect(response.statusCode).toBe(409);
+    expect(await readFile(join(layoutsDir, "demo", "Post.tsx"), "utf8")).toBe(postSource);
+    expect((await app.prisma.layout.findUniqueOrThrow({ where: { id: layout.id } })).filePath).toBe(filePath);
+  });
+
+  it("allows helper-only updates without pruning used post layouts", async () => {
+    const { layout } = await createBlogFixture(app, demoSiteId);
+    await mkdir(join(layoutsDir, "demo"), { recursive: true });
+    await writeFile(join(layoutsDir, "demo", layout.filePath), postSource);
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "helper.ts", content: "export const value = 1;" }],
+    } });
+    expect(response.statusCode).toBe(200);
+    expect(await readFile(join(layoutsDir, "demo", layout.filePath), "utf8")).toBe(postSource);
+    expect((await app.prisma.layout.findUniqueOrThrow({ where: { id: layout.id } })).kind).toBe("post");
+  });
+
+  it("validates every incoming file before writing the batch", async () => {
+    const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/sync/layouts", headers: { authorization: `Bearer ${cliToken}` }, payload: {
+      files: [{ path: "helper.ts", content: "export const value = 1;" }, { path: "../Post.tsx", content: postSource }],
+    } });
+    expect(response.statusCode).toBe(400);
+    expect(await fileExists(join(layoutsDir, "demo", "helper.ts"))).toBe(false);
   });
 });

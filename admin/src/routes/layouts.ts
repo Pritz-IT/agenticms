@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { LayoutInUseError } from "../services/blog/layout-kind.js";
 import { realpath, stat } from "fs/promises";
 import { isAbsolute, resolve, sep } from "path";
 import { performance } from "perf_hooks";
@@ -139,13 +140,20 @@ async function resolveSiteLayoutModulePath(filePath: string, siteKey: string, la
   return { filePathForResolution: normalizeLayoutFilePath(filePath), root: layoutsRoot };
 }
 
+const layoutListSchema = {
+  querystring: {
+    type: "object",
+    properties: { kind: { type: "string", enum: ["page", "post"] } },
+  },
+};
+
 export async function registerSiteLayoutsRoutes(app: FastifyInstance) {
   app.addHook("onRequest", app.authenticate);
 
-  app.get<{ Params: { siteKey: string } }>("/:siteKey/layouts", async (request, reply) => {
+  app.get<{ Params: { siteKey: string }; Querystring: { kind?: "page" | "post" } }>("/:siteKey/layouts", { schema: layoutListSchema }, async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
     const layouts = await app.prisma.layout.findMany({
-      where: { siteId: site.id },
+      where: { siteId: site.id, kind: request.query.kind },
       include: { globalTemplate: true },
       orderBy: { updatedAt: "desc" },
     });
@@ -160,7 +168,7 @@ export async function registerSiteLayoutsRoutes(app: FastifyInstance) {
         const layout = await copyLinkedGlobalTemplateToLayout(app, request.params.siteKey, request.params.id);
         return reply.send(layout);
       } catch (err) {
-        return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+        return reply.status(err instanceof LayoutInUseError ? 409 : 400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -196,10 +204,10 @@ export default async function layoutsRoutes(app: FastifyInstance) {
   app.addHook("onRequest", app.authenticate);
 
   // GET / — return all layouts ordered by updatedAt desc
-  app.get("/", async (_request, reply) => {
+  app.get<{ Querystring: { kind?: "page" | "post" } }>("/", { schema: layoutListSchema }, async (request, reply) => {
     const site = await requireSite(app, DEFAULT_SITE_KEY);
     const layouts = await app.prisma.layout.findMany({
-      where: { siteId: site.id },
+      where: { siteId: site.id, kind: request.query.kind },
       include: { globalTemplate: true },
       orderBy: { updatedAt: "desc" },
     });

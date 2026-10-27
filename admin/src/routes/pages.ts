@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Prisma } from "@prisma/client";
 import { requireSite } from "../services/sites.js";
 import { assertNoRouteCollisions, collectSiteRoutes, lockSiteRoutes, RouteCollisionError } from "../services/blog/route-lock.js";
+import { LayoutKindError, requireLayoutOfKind } from "../services/blog/layout-kind.js";
 import { sendRouteCollision } from "./route-collision.js";
 
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
@@ -24,10 +25,10 @@ function handlePageMutationError(
   request: FastifyRequest,
   context: { op: string; siteId: string; pageId?: string }
 ) {
-  if (error instanceof InvalidPagePathError || error instanceof RouteCollisionError || isUniqueConstraintError(error)) {
+  if (error instanceof LayoutKindError || error instanceof InvalidPagePathError || error instanceof RouteCollisionError || isUniqueConstraintError(error)) {
     request.log.warn({ ...context, err: error }, `${context.op} rejected`);
     request.log.info(context, `${context.op} NO-OP — rejected`);
-    if (error instanceof InvalidPagePathError) {
+    if (error instanceof InvalidPagePathError || error instanceof LayoutKindError) {
       return reply.status(400).send({ error: error.message });
     }
     if (error instanceof RouteCollisionError) {
@@ -82,10 +83,8 @@ export async function findPageForSite(app: FastifyInstance, siteId: string, id: 
   });
 }
 
-export async function validateLayoutForSite(app: FastifyInstance, siteId: string, layoutId: string) {
-  return app.prisma.layout.findFirst({
-    where: { id: layoutId, siteId },
-  });
+export async function validateLayoutForSite(app: { prisma: Prisma.TransactionClient }, siteId: string, layoutId: string) {
+  return requireLayoutOfKind(app.prisma, siteId, layoutId, "page");
 }
 
 export async function createPageForSite(
@@ -112,46 +111,35 @@ export async function createPageForSite(
       return reply.status(409).send({ error: "A page with this path already exists" });
     }
 
-    if (layoutId) {
-      const layout = await validateLayoutForSite(app, siteId, layoutId);
-      if (!layout) {
-        request.log.info({ op: "page.create", siteId, layoutId }, "page.create NO-OP — layout not found");
-        return reply.status(400).send({ error: "Layout not found for this site" });
-      }
-    }
-
     const page = await app.prisma.$transaction(async (tx) => {
       await lockSiteRoutes(tx, siteId);
+      const layout = layoutId != null ? await validateLayoutForSite({ prisma: tx }, siteId, layoutId) : null;
       const createdPage = await tx.page.create({
         data: { siteId, path: canonicalPath, layoutId, sortOrder, isPublished },
         include: { layout: true },
       });
 
-      if (layoutId) {
-        const layout = await tx.layout.findFirst({ where: { id: layoutId, siteId } });
+      if (layout) {
+        const detectedKeys = layout.detectedKeys as Record<string, { type: string; initial: string }>;
+        const locales = await tx.locale.findMany({ where: { siteId } });
+        const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { defaultLocale: true } });
 
-        if (layout) {
-          const detectedKeys = layout.detectedKeys as Record<string, { type: string; initial: string }>;
-          const locales = await tx.locale.findMany({ where: { siteId } });
-          const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { defaultLocale: true } });
+        for (const locale of locales) {
+          for (const [key, keyDef] of Object.entries(detectedKeys)) {
+            if (!CONTENT_TYPES.has(keyDef.type)) continue;
+            if (keyDef.type === "bloglist" && locale.code !== site.defaultLocale) continue;
 
-          for (const locale of locales) {
-            for (const [key, keyDef] of Object.entries(detectedKeys)) {
-              if (!CONTENT_TYPES.has(keyDef.type)) continue;
-              if (keyDef.type === "bloglist" && locale.code !== site.defaultLocale) continue;
-
-              await tx.content.upsert({
-                where: { pageId_key_locale: { pageId: createdPage.id, key, locale: locale.code } },
-                create: {
-                  pageId: createdPage.id,
-                  key,
-                  locale: locale.code,
-                  value: keyDef.initial ?? "",
-                  type: keyDef.type as "text" | "richtext" | "image" | "link" | "page" | "bloglist",
-                },
-                update: {},
-              });
-            }
+            await tx.content.upsert({
+              where: { pageId_key_locale: { pageId: createdPage.id, key, locale: locale.code } },
+              create: {
+                pageId: createdPage.id,
+                key,
+                locale: locale.code,
+                value: keyDef.initial ?? "",
+                type: keyDef.type as "text" | "richtext" | "image" | "link" | "page" | "bloglist",
+              },
+              update: {},
+            });
           }
         }
       }
@@ -192,9 +180,7 @@ export async function updatePageForSite(
       await lockSiteRoutes(tx, siteId);
       const existing = await tx.page.findFirst({ where: { id, siteId } });
       if (!existing) return { status: 404, error: "Page not found" };
-      if (layoutId && !await tx.layout.findFirst({ where: { id: layoutId, siteId } })) {
-        return { status: 400, error: "Layout not found for this site" };
-      }
+      if (layoutId != null) await validateLayoutForSite({ prisma: tx }, siteId, layoutId);
       if (canonicalPath === "/") {
         const category = await tx.blogCategory.findFirst({ where: { siteId, pageId: id }, select: { key: true } });
         if (category) throw new InvalidPagePathError(`Page used by category ${category.key} cannot be the root page`);

@@ -7,8 +7,8 @@ import {
 } from "../services/cli-auth.js";
 import {
   exportLayoutFiles,
+  preflightLayoutSync,
   syncAssetBatch,
-  validateRelativePath,
   writeTextFileAtomic,
   type FileSyncResult,
   type LayoutSyncResult,
@@ -19,6 +19,7 @@ import { normalizeSlug, addAllowedForm, removeAllowedForm, listAllowedForms } fr
 import { basename, extname, join, resolve, sep } from "node:path";
 import { readdir, rm } from "node:fs/promises";
 import { config } from "../config.js";
+import { LayoutInUseError, requireLayoutOfKind } from "../services/blog/layout-kind.js";
 import { handleFile } from "../services/layout-watcher.js";
 import { createSite, type CreateSiteInput } from "../services/site-management.js";
 import { syncGlobalLayoutBatch } from "../services/global-layout-templates.js";
@@ -146,7 +147,7 @@ async function resolveCliLayoutId(app: FastifyInstance, siteId: string, layout: 
     throw new Error(`Layout is ambiguous for this site: ${layout}`);
   }
 
-  return matches[0].id;
+  return (await requireLayoutOfKind(app.prisma, siteId, matches[0].id, "page")).id;
 }
 
 function hasMatchingEtag(ifNoneMatch: unknown, etag: string): boolean {
@@ -252,51 +253,64 @@ async function syncSiteLayoutBatch(
   site: { id: string; key: string },
   files: NonNullable<LayoutSyncBody["files"]>
 ): Promise<LayoutSyncResult> {
-  const root = join(config.LAYOUTS_DIR, site.key);
-  const results: FileSyncResult[] = [];
-  const changedHelpers: string[] = [];
-  const changedLayouts = new Set<string>();
-  const syncedPaths = new Set<string>();
+  const context = { op: "layout.sync", siteId: site.id, count: files.length };
+  app.log.info(context, `${context.op} requested`);
+  try {
+    const root = join(config.LAYOUTS_DIR, site.key);
+    files = await preflightLayoutSync(app, root, files, site);
+    const results: FileSyncResult[] = [];
+    const changedHelpers: string[] = [];
+    const changedLayouts = new Set<string>();
+    const syncedPaths = new Set<string>();
 
-  for (const file of files) {
-    const relPath = validateRelativePath(file.path, TEXT_LAYOUT_EXTENSIONS);
-    syncedPaths.add(relPath);
-    if (typeof file.content !== "string") throw new Error(`content must be a string for ${relPath}`);
-    const fullPath = await writeTextFileAtomic(root, relPath, file.content);
-    const ext = extname(relPath).toLowerCase();
+    for (const file of files) {
+      const relPath = file.path;
+      syncedPaths.add(relPath);
+      const fullPath = await writeTextFileAtomic(root, relPath, file.content);
+      const ext = extname(relPath).toLowerCase();
 
-    if (ext === ".tsx") {
-      await handleFile(app.prisma, fullPath, app.layoutModuleCache, {
-        storedFilePath: relPath,
-        siteId: site.id,
-        staleFilePaths: [`${site.key}/${relPath}`],
-      });
-      changedLayouts.add(relPath);
-      results.push({ path: relPath, status: "compiled" });
+      if (ext === ".tsx") {
+        await handleFile(app.prisma, fullPath, app.layoutModuleCache, {
+          storedFilePath: relPath,
+          siteId: site.id,
+          staleFilePaths: [`${site.key}/${relPath}`],
+        });
+        changedLayouts.add(relPath);
+        results.push({ path: relPath, status: "compiled" });
+      } else {
+        changedHelpers.push(relPath);
+        results.push({ path: relPath, status: "written" });
+      }
+    }
+
+    if (changedLayouts.size > 0) {
+      await pruneStaleSiteLayoutFiles(root, syncedPaths);
+    }
+
+    const recompiled: string[] = [];
+    if (changedHelpers.length > 0) {
+      for (const relPath of await listSiteLayoutFiles(root)) {
+        if (changedLayouts.has(relPath)) continue;
+        await handleFile(app.prisma, pathWithinRoot(root, relPath), app.layoutModuleCache, {
+          storedFilePath: relPath,
+          siteId: site.id,
+          staleFilePaths: [`${site.key}/${relPath}`],
+        });
+        recompiled.push(relPath);
+      }
+    }
+
+    app.log.info(context, files.length ? "layout.sync done" : "layout.sync NO-OP — empty batch");
+    return { files: results, recompiled };
+  } catch (err) {
+    if (err instanceof LayoutInUseError) {
+      app.log.warn({ ...context, err }, `${context.op} rejected`);
+      app.log.info(context, `${context.op} NO-OP — layout in use`);
     } else {
-      changedHelpers.push(relPath);
-      results.push({ path: relPath, status: "written" });
+      app.log.error({ ...context, err }, `${context.op} failed`);
     }
+    throw err;
   }
-
-  if (changedLayouts.size > 0) {
-    await pruneStaleSiteLayoutFiles(root, syncedPaths);
-  }
-
-  const recompiled: string[] = [];
-  if (changedHelpers.length > 0) {
-    for (const relPath of await listSiteLayoutFiles(root)) {
-      if (changedLayouts.has(relPath)) continue;
-      await handleFile(app.prisma, pathWithinRoot(root, relPath), app.layoutModuleCache, {
-        storedFilePath: relPath,
-        siteId: site.id,
-        staleFilePaths: [`${site.key}/${relPath}`],
-      });
-      recompiled.push(relPath);
-    }
-  }
-
-  return { files: results, recompiled };
 }
 
 async function sendCliStatus(app: FastifyInstance, siteKey: string, user: unknown, reply: FastifyReply) {
@@ -489,7 +503,7 @@ export default async function cliRoutes(app: FastifyInstance) {
         const result = await syncSiteLayoutBatch(app, site, files);
         return reply.send(result);
       } catch (err) {
-        return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+        return reply.status(err instanceof LayoutInUseError ? 409 : 400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );
@@ -592,9 +606,12 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const site = await requireSite(app, request.params.siteKey);
       let layoutId: string | null | undefined;
+      request.log.info({ op: "page.create", siteId: site.id }, "page.create requested");
       try {
         layoutId = await resolveCliLayoutId(app, site.id, request.body?.layout);
       } catch (err) {
+        request.log.warn({ op: "page.create", siteId: site.id, err }, "page.create rejected");
+        request.log.info({ op: "page.create", siteId: site.id }, "page.create NO-OP — invalid layout");
         return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
       }
       return createPageForSite(app, site.id, {
@@ -612,9 +629,12 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const site = await requireSite(app, request.params.siteKey);
       let layoutId: string | null | undefined;
+      request.log.info({ op: "page.update", siteId: site.id }, "page.update requested");
       try {
         layoutId = await resolveCliLayoutId(app, site.id, request.body?.layout);
       } catch (err) {
+        request.log.warn({ op: "page.update", siteId: site.id, err }, "page.update rejected");
+        request.log.info({ op: "page.update", siteId: site.id }, "page.update NO-OP — invalid layout");
         return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
       }
       return updatePageForSite(app, site.id, request.params.id, {
@@ -674,7 +694,7 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
         const result = await syncSiteLayoutBatch(app, site, files);
         return reply.send(result);
       } catch (err) {
-        return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+        return reply.status(err instanceof LayoutInUseError ? 409 : 400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     }
   );

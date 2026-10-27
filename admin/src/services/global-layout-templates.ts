@@ -4,7 +4,8 @@ import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, join, relative } from "node:path";
 import { config } from "../config.js";
 import { compileLayout } from "./layout-compiler.js";
-import { extractLayoutName, parseLayoutKeys } from "./layout-parser.js";
+import { extractLayoutName, parseLayoutKeys, parseLayoutKind } from "./layout-parser.js";
+import { assertLayoutChangesAllowed, LayoutInUseError } from "./blog/layout-kind.js";
 import { handleFile } from "./layout-watcher.js";
 import { requireSite } from "./sites.js";
 import { validateRelativePath, writeTextFileAtomic, type FileSyncResult } from "./cli-sync.js";
@@ -79,7 +80,7 @@ async function upsertTemplate(app: FastifyInstance, relPath: string): Promise<Gl
   const absPath = join(globalRoot(), relPath);
   const content = await readFile(absPath, "utf-8");
   const detectedKeys = parseLayoutKeys(content);
-  if (Object.keys(detectedKeys).length === 0) {
+  if (Object.keys(detectedKeys).length === 0 && parseLayoutKind(content) !== "post") {
     throw new Error(`Global template has no layout keys: ${relPath}`);
   }
   const sourceHash = await hashCompiledInputs(absPath);
@@ -117,33 +118,41 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 export async function syncGlobalLayoutBatch(app: FastifyInstance, files: TextUploadFile[]): Promise<GlobalLayoutSyncResult> {
-  const results: FileSyncResult[] = [];
-  const changedRoots = new Set<string>();
-  const changedFolders = new Set<string>();
+  const context = { op: "layout.sync-global", count: files.length };
+  app.log.info(context, "layout.sync-global requested");
+  try {
+    const results: FileSyncResult[] = [];
+    const changedRoots = new Set<string>();
+    const changedFolders = new Set<string>();
 
-  for (const file of files) {
-    const relPath = validateRelativePath(file.path, TEXT_LAYOUT_EXTENSIONS);
-    if (typeof file.content !== "string") throw new Error(`content must be a string for ${relPath}`);
-    const templateFolder = templateFolderFromPath(relPath);
-    await writeTextFileAtomic(globalRoot(), relPath, file.content);
-    changedFolders.add(templateFolder);
-    if (isTemplateRoot(relPath)) changedRoots.add(relPath);
-    results.push({ path: relPath, status: isTemplateRoot(relPath) ? "registered" : "written" });
-  }
-
-  for (const folder of changedFolders) {
-    for (const root of await listTemplateRootFiles(folder)) {
-      changedRoots.add(root);
+    for (const file of files) {
+      const relPath = validateRelativePath(file.path, TEXT_LAYOUT_EXTENSIONS);
+      if (typeof file.content !== "string") throw new Error(`content must be a string for ${relPath}`);
+      const templateFolder = templateFolderFromPath(relPath);
+      await writeTextFileAtomic(globalRoot(), relPath, file.content);
+      changedFolders.add(templateFolder);
+      if (isTemplateRoot(relPath)) changedRoots.add(relPath);
+      results.push({ path: relPath, status: isTemplateRoot(relPath) ? "registered" : "written" });
     }
-  }
 
-  const templates: GlobalLayoutSyncResult["templates"] = [];
-  for (const relPath of [...changedRoots].sort()) {
-    const template = await upsertTemplate(app, relPath);
-    templates.push({ key: template.key, status: "registered" });
-  }
+    for (const folder of changedFolders) {
+      for (const root of await listTemplateRootFiles(folder)) {
+        changedRoots.add(root);
+      }
+    }
 
-  return { files: results, templates };
+    const templates: GlobalLayoutSyncResult["templates"] = [];
+    for (const relPath of [...changedRoots].sort()) {
+      const template = await upsertTemplate(app, relPath);
+      templates.push({ key: template.key, status: "registered" });
+    }
+
+    app.log.info(context, files.length ? "layout.sync-global done" : "layout.sync-global NO-OP — empty batch");
+    return { files: results, templates };
+  } catch (err) {
+    app.log.error({ ...context, err }, "layout.sync-global failed");
+    throw err;
+  }
 }
 
 export async function copyGlobalTemplateToSite(
@@ -152,73 +161,86 @@ export async function copyGlobalTemplateToSite(
   templateId: string,
   options: CopyGlobalTemplateOptions = {}
 ): Promise<Layout> {
-  const [site, template] = await Promise.all([
-    requireSite(app, siteKey),
-    app.prisma.globalLayoutTemplate.findUnique({ where: { id: templateId } }),
-  ]);
-  if (!template) throw new Error("Global template not found");
+  const context = { op: "layout.copy-global", siteKey, templateId };
+  app.log.info(context, `${context.op} requested`);
+  try {
+    const [site, template] = await Promise.all([
+      requireSite(app, siteKey),
+      app.prisma.globalLayoutTemplate.findUnique({ where: { id: templateId } }),
+    ]);
+    if (!template) throw new Error("Global template not found");
 
-  const destinationPath = validateRelativePath(options.destinationPath ?? template.key, ROOT_LAYOUT_EXTENSIONS);
-  const existing = await app.prisma.layout.findUnique({
-    where: { siteId_filePath: { siteId: site.id, filePath: destinationPath } },
-  });
-  if (existing && existing.globalTemplateId !== template.id) {
-    throw new Error("Destination layout already exists");
-  }
-
-  const sourcePath = join(globalRoot(), template.filePath);
-  const destinationAbs = join(config.LAYOUTS_DIR, site.key, destinationPath);
-  if (!existing && await fileExists(destinationAbs)) {
-    throw new Error("Destination layout already exists");
-  }
-
-  const templateFolder = templateFolderFromPath(template.filePath);
-  const siteLayoutsRoot = join(config.LAYOUTS_DIR, site.key);
-  const helperRoot = join(globalRoot(), templateFolder);
-  const destinationFolder = destinationFolderFor(destinationPath);
-  const helperPlans: HelperCopyPlan[] = [];
-  for (const sourceFile of await walkFiles(helperRoot)) {
-    const helperRel = relative(helperRoot, sourceFile).split(/[\\/]+/).join("/");
-    if (isTemplateRoot(`${templateFolder}/${helperRel}`)) continue;
-    if (!TEXT_LAYOUT_EXTENSIONS.has(extname(helperRel).toLowerCase())) continue;
-    const targetRel = destinationFolder ? `${destinationFolder}/${helperRel}` : helperRel;
-    if (!existing && await fileExists(join(siteLayoutsRoot, targetRel))) {
-      throw new Error(`Destination helper already exists: ${targetRel}`);
+    const destinationPath = validateRelativePath(options.destinationPath ?? template.key, ROOT_LAYOUT_EXTENSIONS);
+    const existing = await app.prisma.layout.findUnique({
+      where: { siteId_filePath: { siteId: site.id, filePath: destinationPath } },
+    });
+    if (existing && existing.globalTemplateId !== template.id) {
+      throw new Error("Destination layout already exists");
     }
-    helperPlans.push({ sourceFile, targetRel });
+
+    const sourcePath = join(globalRoot(), template.filePath);
+    const destinationAbs = join(config.LAYOUTS_DIR, site.key, destinationPath);
+    if (!existing && await fileExists(destinationAbs)) {
+      throw new Error("Destination layout already exists");
+    }
+
+    const templateFolder = templateFolderFromPath(template.filePath);
+    const siteLayoutsRoot = join(config.LAYOUTS_DIR, site.key);
+    const helperRoot = join(globalRoot(), templateFolder);
+    const destinationFolder = destinationFolderFor(destinationPath);
+    const helperPlans: HelperCopyPlan[] = [];
+    for (const sourceFile of await walkFiles(helperRoot)) {
+      const helperRel = relative(helperRoot, sourceFile).split(/[\\/]+/).join("/");
+      if (isTemplateRoot(`${templateFolder}/${helperRel}`)) continue;
+      if (!TEXT_LAYOUT_EXTENSIONS.has(extname(helperRel).toLowerCase())) continue;
+      const targetRel = destinationFolder ? `${destinationFolder}/${helperRel}` : helperRel;
+      if (!existing && await fileExists(join(siteLayoutsRoot, targetRel))) {
+        throw new Error(`Destination helper already exists: ${targetRel}`);
+      }
+      helperPlans.push({ sourceFile, targetRel });
+    }
+
+    const copies = await Promise.all([
+      { sourceFile: sourcePath, targetRel: destinationPath },
+      ...helperPlans,
+    ].map(async ({ sourceFile, targetRel }) => ({
+      path: targetRel,
+      content: rewriteCopyableTemplateAssetUrls(await readFile(sourceFile, "utf-8"), site.key, templateFolder),
+    })));
+    await assertLayoutChangesAllowed(app.prisma, site.id, copies
+      .filter((file) => extname(file.path).toLowerCase() === ".tsx")
+      .map((file) => ({ filePath: file.path, nextKind: parseLayoutKind(file.content) })));
+
+    await mkdir(join(config.ASSETS_DIR, site.key), { recursive: true });
+    await copyTemplateAssetsToSite(app, site, templateFolder);
+    for (const file of copies) {
+      await writeTextFileAtomic(siteLayoutsRoot, file.path, file.content);
+    }
+
+    await handleFile(app.prisma, destinationAbs, app.layoutModuleCache, {
+      storedFilePath: destinationPath,
+      siteId: site.id,
+      staleFilePaths: [`${site.key}/${destinationPath}`],
+    });
+
+    const layout = await app.prisma.layout.update({
+      where: { siteId_filePath: { siteId: site.id, filePath: destinationPath } },
+      data: {
+        globalTemplateId: template.id,
+        globalTemplateHash: template.sourceHash,
+      },
+    });
+    app.log.info({ ...context, layoutId: layout.id }, "layout.copy-global done");
+    return layout;
+  } catch (err) {
+    if (err instanceof LayoutInUseError) {
+      app.log.warn({ ...context, err }, `${context.op} rejected`);
+      app.log.info(context, `${context.op} NO-OP — layout in use`);
+    } else {
+      app.log.error({ ...context, err }, `${context.op} failed`);
+    }
+    throw err;
   }
-
-  await mkdir(join(config.ASSETS_DIR, site.key), { recursive: true });
-  await copyTemplateAssetsToSite(app, site, templateFolder);
-  const rootContent = rewriteCopyableTemplateAssetUrls(
-    await readFile(sourcePath, "utf-8"),
-    site.key,
-    templateFolder
-  );
-  await writeTextFileAtomic(siteLayoutsRoot, destinationPath, rootContent);
-
-  for (const { sourceFile, targetRel } of helperPlans) {
-    const helperContent = rewriteCopyableTemplateAssetUrls(
-      await readFile(sourceFile, "utf-8"),
-      site.key,
-      templateFolder
-    );
-    await writeTextFileAtomic(siteLayoutsRoot, targetRel, helperContent);
-  }
-
-  await handleFile(app.prisma, destinationAbs, app.layoutModuleCache, {
-    storedFilePath: destinationPath,
-    siteId: site.id,
-    staleFilePaths: [`${site.key}/${destinationPath}`],
-  });
-
-  return app.prisma.layout.update({
-    where: { siteId_filePath: { siteId: site.id, filePath: destinationPath } },
-    data: {
-      globalTemplateId: template.id,
-      globalTemplateHash: template.sourceHash,
-    },
-  });
 }
 
 export async function copyLinkedGlobalTemplateToLayout(
