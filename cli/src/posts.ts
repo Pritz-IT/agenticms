@@ -96,16 +96,24 @@ export function parsePostFile(filePath: string, text: string): { meta: PostFront
   };
 }
 
-export function markdownToHtml(markdown: string): string {
+function imageHtml(href: string, title: string | null, text: string, figure: boolean): string {
+  const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  const image = `<img src="${escape(href)}" alt="${escape(text)}">`;
+  return figure ? `<figure>${image}${title ? `<figcaption>${escape(title)}</figcaption>` : ""}</figure>` : image;
+}
+
+export function markdownToHtml(markdown: string, mediaRefs = new Map<string, string>()): string {
   const renderer = new marked.Renderer();
   renderer.image = ({ href, title, text }) => {
-    const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-    const image = `<img src="${escape(href)}" alt="${escape(text)}">`;
-    return `<figure>${image}${title ? `<figcaption>${escape(title)}</figcaption>` : ""}</figure>`;
+    return imageHtml(mediaRefs.get(href) ?? href, title, text, true);
   };
   renderer.paragraph = ({ tokens }) => {
-    const content = Parser.parseInline(tokens, { renderer });
-    return tokens.length === 1 && tokens[0].type === "image" ? content : `<p>${content}</p>\n`;
+    if (tokens.every((token) => token.type === "image" || (token.type === "text" && !token.raw.trim()))) {
+      return tokens.filter((token) => token.type === "image").map((token) => Parser.parseInline([token], { renderer })).join("");
+    }
+    const inlineRenderer = new marked.Renderer();
+    inlineRenderer.image = ({ href, title, text }) => imageHtml(mediaRefs.get(href) ?? href, title, text, false);
+    return `<p>${Parser.parseInline(tokens, { renderer: inlineRenderer })}</p>\n`;
   };
   return marked.parse(markdown, {
     gfm: true,
@@ -123,11 +131,12 @@ function imageRefs(markdown: string): string[] {
 
 type MediaFile = { ref: string; name: string; base64: string; realPath: string };
 
-async function collectMediaFiles(mdFile: string, refs: string[]): Promise<MediaFile[]> {
+async function resolveMediaRefs(mdFile: string, refs: string[]): Promise<Map<string, MediaFile>> {
   const media = new Map<string, MediaFile>();
   const requestedBaseDir = resolve(dirname(mdFile));
   const baseDir = await realpath(requestedBaseDir);
   for (const ref of refs) {
+    if (media.has(ref)) continue;
     if (ref.startsWith("/assets/") || ref.startsWith("/media/")) continue;
     if (/^https?:/i.test(ref)) throw new Error(`${mdFile}: external media URLs are not supported: ${ref}`);
     const requestedPath = resolve(requestedBaseDir, ref);
@@ -138,19 +147,20 @@ async function collectMediaFiles(mdFile: string, refs: string[]): Promise<MediaF
     if (filePath !== baseDir && !filePath.startsWith(baseDir + sep)) {
       throw new Error(`${mdFile}: media path escapes Markdown directory: ${ref}`);
     }
-    if (media.has(filePath)) continue;
     const bytes = await readFile(filePath);
-    media.set(filePath, { ref, name: basename(filePath), base64: bytes.toString("base64"), realPath: filePath });
+    media.set(ref, { ref, name: basename(filePath), base64: bytes.toString("base64"), realPath: filePath });
   }
+  return media;
+}
+
+async function collectMediaFiles(mdFile: string, refs: string[]): Promise<MediaFile[]> {
+  const media = new Map<string, MediaFile>();
+  for (const file of (await resolveMediaRefs(mdFile, refs)).values()) media.set(file.realPath, file);
   return [...media.values()];
 }
 
 export async function collectMedia(mdFile: string, refs: string[]): Promise<Array<{ ref: string; name: string; base64: string }>> {
   return (await collectMediaFiles(mdFile, refs)).map(({ ref, name, base64 }) => ({ ref, name, base64 }));
-}
-
-function rewriteMediaRefs(html: string, refs: Map<string, string>): string {
-  return [...refs].reduce((result, [from, to]) => result.replaceAll(`src="${from}"`, `src="${to}"`), html);
 }
 
 export function parsePostPushArgs(args: string[]): { files: string[]; draft: boolean } {
@@ -184,30 +194,32 @@ export async function pushPosts(
   filePaths: string[],
   draft: boolean
 ): Promise<void> {
+  const parsedFiles = await Promise.all(filePaths.map(async (filePath) => ({ filePath, ...parsePostFile(filePath, await readFile(filePath, "utf8")) })));
   const files: PushFile[] = [];
   const media = new Map<string, { ref: string; name: string; base64: string }>();
-  for (const filePath of filePaths) {
-    const { meta, markdown } = parsePostFile(filePath, await readFile(filePath, "utf8"));
+  const reservedRefs = new Set(parsedFiles.flatMap(({ meta, markdown }) => [...imageRefs(markdown), ...(meta.cover ? [meta.cover] : [])]));
+  let nextRef = 1;
+  const createRef = (): string => {
+    while (reservedRefs.has(`media:${nextRef}`)) nextRef += 1;
+    return `media:${nextRef++}`;
+  };
+  for (const { filePath, meta, markdown } of parsedFiles) {
     const refs = [...imageRefs(markdown), ...(meta.cover ? [meta.cover] : [])];
-    const localMedia = await collectMediaFiles(filePath, refs);
+    const localMedia = await resolveMediaRefs(filePath, refs);
     const mediaRefs = new Map<string, string>();
-    for (const item of localMedia) {
+    for (const [ref, item] of localMedia) {
       let upload = media.get(item.realPath);
       if (!upload) {
-        upload = { ref: `media-${media.size + 1}`, name: item.name, base64: item.base64 };
+        upload = { ref: createRef(), name: item.name, base64: item.base64 };
         media.set(item.realPath, upload);
       }
-      for (const ref of refs) {
-        if (ref.startsWith("/assets/") || ref.startsWith("/media/")) continue;
-        const candidate = await realpath(resolve(await realpath(resolve(dirname(filePath))), ref));
-        if (candidate === item.realPath) mediaRefs.set(ref, upload.ref);
-      }
+      mediaRefs.set(ref, upload.ref);
     }
     files.push({
       source: filePath,
       ...meta,
       cover: meta.cover ? mediaRefs.get(meta.cover) ?? meta.cover : null,
-      html: rewriteMediaRefs(markdownToHtml(markdown), mediaRefs),
+      html: markdownToHtml(markdown, mediaRefs),
     });
   }
 
