@@ -20,6 +20,7 @@ export const config = {
   LAYOUTS_DIR: optional("LAYOUTS_DIR", "./layouts"),
   COMPILED_LAYOUTS_DIR: optional("COMPILED_LAYOUTS_DIR", "./.layout-modules"),
   ASSETS_DIR: optional("ASSETS_DIR", "./assets"),
+  POST_MEDIA_DIR: optional("POST_MEDIA_DIR", "./post-media"),
   CLI_PACKAGE_DIR: optional("CLI_PACKAGE_DIR", "../cli"),
   ADMIN_PUBLIC_URL: optional("ADMIN_PUBLIC_URL", ""),
 

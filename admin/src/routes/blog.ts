@@ -1,13 +1,70 @@
 import type { FastifyInstance } from "fastify";
+import multipart from "@fastify/multipart";
+import { promises as fs } from "node:fs";
 import { requireSite } from "../services/sites.js";
 import { LayoutKindError } from "../services/blog/layout-kind.js";
 import { RouteCollisionError } from "../services/blog/route-lock.js";
 import { listBlogMasterdata, MasterdataError, mutateBlogMasterdata } from "../services/blog/masterdata.js";
 import { sendRouteCollision } from "./route-collision.js";
 import { deletePost, getPost, listPosts, PostError, type PostInput, savePost, setPostTranslationStatus } from "../services/blog/posts.js";
+import { detectImageType, PostMediaError, postMediaDiskPath, storePostMedia } from "../services/blog/post-media.js";
 
 export async function registerSiteBlogRoutes(app: FastifyInstance) {
+  await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
   app.addHook("onRequest", app.authenticate);
+
+  app.get<{ Params: { siteKey: string; "*": string } }>("/:siteKey/blog/media/*", async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    const diskPath = postMediaDiskPath(site.key, `/media/${request.params["*"]}`);
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Cache-Control", "private, no-store");
+    if (!diskPath) return reply.status(404).send({ error: "Post media not found" });
+    try {
+      const buffer = await fs.readFile(diskPath);
+      const type = detectImageType(buffer);
+      if (!type) {
+        request.log.warn({ op: "blog.media.read", siteKey: site.key }, "blog.media.read rejected — unsupported stored image");
+        return reply.status(404).send({ error: "Post media not found" });
+      }
+      return reply.type(`image/${type}`).send(buffer);
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        request.log.warn({ op: "blog.media.read", siteKey: site.key, err: error }, "blog.media.read missing");
+        return reply.status(404).send({ error: "Post media not found" });
+      }
+      request.log.error({ op: "blog.media.read", siteKey: site.key, err: error }, "blog.media.read failed");
+      throw error;
+    }
+  });
+
+  app.post<{ Params: { siteKey: string; key: string } }>("/:siteKey/blog/posts/:key/media", async (request, reply) => {
+    const { siteKey, key } = request.params;
+    const context = { op: "blog.media.upload", siteKey, postKey: key };
+    request.log.info(context, "blog.media.upload requested");
+    try {
+      const site = await requireSite(app, siteKey);
+      const post = await app.prisma.blogPost.findUnique({ where: { siteId_key: { siteId: site.id, key } }, select: { key: true } });
+      if (!post) throw new PostMediaError(404, "Post not found");
+      const data = await request.file();
+      if (!data) throw new PostMediaError(400, "No file uploaded");
+      // The multipart buffer reader rejects truncated uploads at the asset route's 10 MiB limit.
+      const buffer = await data.toBuffer();
+      const url = await storePostMedia(site.key, post.key, data.filename, buffer, request.log);
+      request.log.info(context, "blog.media.upload completed");
+      return reply.status(201).send({ url });
+    } catch (error) {
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      if (statusCode && statusCode < 500) {
+        request.log.warn({ ...context, err: error }, "blog.media.upload rejected");
+        request.log.info(context, "blog.media.upload NO-OP — rejected");
+      } else {
+        request.log.error({ ...context, err: error }, "blog.media.upload failed");
+        request.log.info(context, "blog.media.upload failed to complete");
+      }
+      if (error instanceof PostMediaError) return reply.status(error.statusCode).send({ error: error.message });
+      throw error;
+    }
+  });
 
   app.get<{ Params: { siteKey: string }; Querystring: { category?: string; tag?: string; status?: string } }>("/:siteKey/blog/posts", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);

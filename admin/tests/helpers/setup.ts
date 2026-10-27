@@ -7,6 +7,7 @@ process.env["INTERNAL_API_KEY"] = "test-internal-api-key";
 process.env["WEBSITE_URL"] = "http://localhost:4321";
 process.env["LAYOUTS_DIR"] = "./layouts";
 process.env["ASSETS_DIR"] = "./assets";
+process.env["POST_MEDIA_DIR"] = "./post-media-test";
 process.env["BUILDS_DIR"] = "./builds-test";
 // Functional suites must not be throttled; the dedicated rate-limit tests
 // (submissions-ratelimit.test.ts / login-ratelimit.test.ts) override these

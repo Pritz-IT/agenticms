@@ -5,6 +5,8 @@ cli/dist/
 cli/node_modules/
 admin/.layout-modules/
 admin/builds-test/
+admin/post-media-test/
+admin/post-media/
 
 # Secrets — never commit. Use .env.example as the template.
 .env
@@ -20,6 +22,7 @@ admin/assets/
 # content moved onto the host manually — never committed.
 /layouts/
 /assets/
+/post-media/
 
 # Internal/customer website content. Keep it locally for CMS work, but do not
 # publish it with the open-source AgentiCMS repository.

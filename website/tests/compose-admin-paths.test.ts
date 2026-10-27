@@ -20,6 +20,7 @@ const adminBlock = m![1];
 const expect: Record<string, string> = {
   LAYOUTS_DIR: "/layouts",
   ASSETS_DIR: "/assets",
+  POST_MEDIA_DIR: "/post-media",
   BUILDS_DIR: "/var/www/builds",
 };
 for (const [k, v] of Object.entries(expect)) {
@@ -33,5 +34,10 @@ for (const [k, v] of Object.entries(expect)) {
     `admin must mount something at ${v} for ${k}`
   );
 }
+
+assert.match(adminBlock, /-\s*\.\/post-media:\/post-media\s*$/m, "admin must persist private post media in its own bind mount");
+const website = yaml.match(/\n {2}website:\n([\s\S]*?)(?=\n {2}\w[\w-]*:\n|\nvolumes:|\nnetworks:|$)/);
+assert.ok(website, "website service block not found");
+assert.doesNotMatch(website[1], /post-media|POST_MEDIA_DIR/, "website must not have access to private post media");
 
 console.log("compose-admin-paths tests passed");

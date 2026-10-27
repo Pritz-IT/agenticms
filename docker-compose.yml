@@ -32,6 +32,8 @@ services:
       # Assets, like layouts, are moved onto the host manually — bind-mount
       # ./assets so files can be dropped in directly (admin: rw for uploads).
       - ./assets:/assets
+      # Private post uploads; only build copies are exposed by the website.
+      - ./post-media:/post-media
       - builds:/var/www/builds
     environment:
       - NODE_ENV=production
@@ -42,6 +44,7 @@ services:
       - LAYOUTS_DIR=/layouts
       - COMPILED_LAYOUTS_DIR=/var/cache/layout-modules
       - ASSETS_DIR=/assets
+      - POST_MEDIA_DIR=/post-media
       - BUILDS_DIR=/var/www/builds
       - DATABASE_URL=postgresql://agenticms:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — see .env.example}@postgres:5432/agenticms
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — generate a long random value, see .env.example}
