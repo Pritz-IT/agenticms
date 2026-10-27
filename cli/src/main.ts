@@ -17,6 +17,7 @@ import {
   updatePage,
 } from "./pages.js";
 import { addForm, listForms, parseFormArgs, removeForm } from "./forms.js";
+import { listPosts, parsePostPushArgs, pushPosts } from "./posts.js";
 
 interface ParsedArgs {
   args: string[];
@@ -76,6 +77,8 @@ function usage(): string {
     "  agenticms forms list [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms forms add --form <slug> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms forms remove --form <slug> [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms push post <file.md> [<file.md> …] [--draft] [--url <admin-url>] [--project-root <path>] [--site <key>]",
+    "  agenticms post list [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms build <staging|production> [--url <admin-url>] [--project-root <path>] [--site <key>]",
     "  agenticms logout [--url <admin-url>] [--revoke]",
   ].join("\n");
@@ -154,6 +157,19 @@ async function run(): Promise<void> {
     else if (subcommand === "add") await addForm(parsed.adminUrl, parsed.projectRoot, parsed.site, parseFormArgs(formArgs).form);
     else if (subcommand === "remove") await removeForm(parsed.adminUrl, parsed.projectRoot, parsed.site, parseFormArgs(formArgs).form);
     else throw new Error("forms requires subcommand: list, add, or remove");
+    return;
+  }
+
+  if (command === "push") {
+    if (subcommand !== "post") throw new Error("push requires target: post");
+    const options = parsePostPushArgs(parsed.args.slice(2));
+    await pushPosts(parsed.adminUrl, parsed.projectRoot, parsed.site, options.files, options.draft);
+    return;
+  }
+
+  if (command === "post") {
+    if (subcommand !== "list") throw new Error("post requires subcommand: list");
+    await listPosts(parsed.adminUrl, parsed.projectRoot, parsed.site);
     return;
   }
 

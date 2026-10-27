@@ -19,7 +19,7 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "tsc",
+    "build": "tsc && esbuild dist/main.js --bundle --platform=node --target=node20 --format=esm --outfile=dist/main.bundle.js && mv dist/main.bundle.js dist/main.js",
     "test": "vitest run"
   },
   "devDependencies": {
