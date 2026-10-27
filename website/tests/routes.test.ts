@@ -46,6 +46,9 @@ function makePage(
 
 function makeConfig(pages: Page[], siteUrl: string | null): SiteConfig {
   return {
+    buildTarget: "production",
+    posts: [],
+    blogLists: {},
     settings: siteUrl
       ? {
           id: "s1",

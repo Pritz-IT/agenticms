@@ -10,6 +10,7 @@ const props: LayoutProps = {
   navigation: [],
   locale: "en",
   locales: [{ id: "loc-en", code: "en", label: "English", isDefault: true, sortOrder: 0 }],
+  blogLists: {},
   settings: {
     id: "settings",
     name: "AgentiCMS",
