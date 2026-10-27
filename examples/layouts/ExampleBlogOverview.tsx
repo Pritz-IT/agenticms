@@ -1,3 +1,4 @@
+import { formatPostDate } from "./lib/format-post-date";
 import type { LayoutProps } from "@agenticms/components";
 
 export const keys = {
@@ -11,7 +12,7 @@ export const keys = {
   "blog.list": { type: "bloglist", initial: "" },
 };
 
-export default function ExampleBlogOverview({ content, blogLists }: LayoutProps) {
+export default function ExampleBlogOverview({ content, blogLists, locale }: LayoutProps) {
   const { posts, pagination } = blogLists["blog.list"] ?? { posts: [], pagination: null };
 
   return (
@@ -29,7 +30,7 @@ export default function ExampleBlogOverview({ content, blogLists }: LayoutProps)
                 <p className="example-blog-category">{post.category.name}</p>
                 <h2><a href={post.url}>{post.title}</a></h2>
                 <p>{post.excerpt}</p>
-                {post.publishedAt && <time dateTime={post.publishedAt}>{post.publishedAt}</time>}
+                {post.publishedAt && <time dateTime={post.publishedAt}>{formatPostDate(post.publishedAt, locale)}</time>}
               </article>
             ))}
           </div>

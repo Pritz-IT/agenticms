@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { requireSite } from "../services/sites.js";
 import { sanitizeContentValue } from "../lib/content-sanitize.js";
-import { BlogListFilterError, blogListDefaults, parseBlogListFilter } from "../services/blog/bloglist.js";
+import { BlogListFilterError, blogListDefaults, parseBlogListFilter, parsePageBlogListFilters } from "../services/blog/bloglist.js";
 import { lockSiteRoutes } from "../services/blog/route-lock.js";
 
 const DEFAULT_SITE_KEY = "demo";
@@ -67,9 +67,8 @@ async function saveContent(
           const lists = new Map(Object.entries(blogListDefaults(page.layout?.detectedKeys)));
           const contents = await tx.content.findMany({ where: { pageId, locale: site.defaultLocale, type: "bloglist" } });
           for (const content of contents) lists.set(content.key, content.value);
-          for (const [otherKey, otherValue] of lists) {
-            if (otherKey !== key && parseBlogListFilter(otherValue).pageSize !== null) throw new BlogListFilterError(`Only one bloglist per page can be paginated (${otherKey})`);
-          }
+          lists.set(key, value);
+          parsePageBlogListFilters(page.path, Object.fromEntries(lists));
         }
       }
       const where = { pageId_key_locale: { pageId, key, locale } };

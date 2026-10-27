@@ -102,7 +102,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+        location ~ ^/api/(?:assets|sites/[^/]+/assets|sites/[^/]+/blog/posts/[^/]+/media)$ {
             limit_req zone=assets burst=10 nodelay;
             limit_conn perip 10;
             client_max_body_size 12m;
@@ -188,7 +188,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+        location ~ ^/api/(?:assets|sites/[^/]+/assets|sites/[^/]+/blog/posts/[^/]+/media)$ {
             limit_req zone=assets burst=10 nodelay;
             limit_conn perip 10;
             client_max_body_size 12m;
@@ -313,7 +313,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:assets|sites/[^/]+/assets)$ {
+        location ~ ^/api/(?:assets|sites/[^/]+/assets|sites/[^/]+/blog/posts/[^/]+/media)$ {
             limit_req zone=assets burst=10 nodelay;
             limit_conn perip 10;
             client_max_body_size 12m;

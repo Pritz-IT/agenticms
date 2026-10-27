@@ -5,6 +5,14 @@ import { compileLayout } from "../../src/services/layout-compiler.js";
 import { parseLayoutKeys, parseLayoutKind } from "../../src/services/layout-parser.js";
 
 describe("example blog layouts", () => {
+  it("formats dates per locale with safe invalid-date and invalid-locale fallbacks", async () => {
+    const { formatPostDate } = await import("../../../examples/layouts/lib/format-post-date.js");
+    expect(formatPostDate("2026-10-27", "de")).toBe("27. Oktober 2026");
+    expect(formatPostDate("2026-10-27T00:00:00.000Z", "en")).toBe("October 27, 2026");
+    expect(formatPostDate("invalid", "de")).toBe("invalid");
+    expect(formatPostDate("2026-10-27", "bad_locale")).toBe("2026-10-27");
+  });
+
   it.each([
     ["ExamplePost", "post"],
     ["ExampleBlogOverview", "page"],

@@ -118,7 +118,7 @@ export async function listPosts(prisma: Prisma.TransactionClient, site: PostSite
   return posts.map(serialize);
 }
 
-export async function validatePostInput(tx: Prisma.TransactionClient, site: PostSite, input: unknown, existing: PostRecord | null = null) {
+export async function validatePostInput(tx: Prisma.TransactionClient, site: PostSite, input: unknown, existing: PostRecord | null = null, logger: FastifyBaseLogger = log) {
   if (!isRecord(input)) throw new PostError(400, "Body must be an object");
   if (Object.keys(input).some((field) => !["key", "category", "tags", "layout", "publishedAt", "translations"].includes(field))) throw new PostError(400, "Unknown post field");
   if (typeof input.key !== "string" || !keyPattern.test(input.key)) throw new PostError(400, "key must contain lowercase letters, digits and single hyphens");
@@ -164,8 +164,12 @@ export async function validatePostInput(tx: Prisma.TransactionClient, site: Post
       status: fields.status ?? existing?.translations.find((entry) => entry.locale === locale)?.status ?? "draft",
     };
   });
-  const becomesPublished = translations.some((entry) => entry.status === "published" && existing?.translations.find((old) => old.locale === entry.locale)?.status !== "published");
-  if (publishedAt === null && becomesPublished) publishedAt = new Date(new Date().toISOString().slice(0, 10));
+  const hasPublishedTranslation = translations.some((entry) => entry.status === "published")
+    || existing?.translations.some((entry) => entry.status === "published" && !translations.some((next) => next.locale === entry.locale));
+  if (publishedAt === null && hasPublishedTranslation) {
+    publishedAt = new Date(new Date().toISOString().slice(0, 10));
+    logger.info({ op: "blog.post.saveInTx", siteId: site.id, key: input.key, publishedAt }, "blog post publishedAt defaulted to today (UTC)");
+  }
   return { key: input.key, categoryId: category.id, tags, layoutId, publishedAt, translations };
 }
 
@@ -179,7 +183,7 @@ export async function savePostInTx(tx: Prisma.TransactionClient, site: PostSite,
     const existing = await tx.blogPost.findUnique({ where, include: postInclude });
     if (mode === "create" && existing) throw new PostError(409, "Post key is already in use");
     if (mode === "update" && !existing) throw new PostError(404, "Post not found");
-    const data = await validatePostInput(tx, site, input, existing);
+    const data = await validatePostInput(tx, site, input, existing, logger);
     const changedTranslations = data.translations.filter((entry) => {
       const old = existing?.translations.find((value) => value.locale === entry.locale);
       return !old || Object.entries(entry).some(([field, value]) => old[field as keyof typeof entry] !== value);

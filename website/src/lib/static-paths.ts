@@ -2,7 +2,7 @@ import type { BlogList, ContentMap } from "../components/types";
 import type { Page, SiteConfig } from "./site-config-types";
 import { blogListsForPage, paginatedPageCount } from "./blog";
 import { resolveContent } from "./content";
-import { pageSlug } from "./routes";
+import { pageSlug, slugToUrlPath } from "./routes";
 
 export type StaticPath = {
   params: { slug: string | undefined };
@@ -24,7 +24,7 @@ export function buildStaticPaths(config: SiteConfig, defaultLocale: string): Sta
           params: { slug: pageNumber === 1 ? slug : `${slug ? `${slug}/` : ""}__page/${pageNumber}` },
           props: {
             kind: "page", page, locale: locale.code, content, pageNumber,
-            blogLists: blogListsForPage(config, page, locale.code, pageNumber, slug ? `/${slug}` : "/"),
+            blogLists: blogListsForPage(config, page, locale.code, pageNumber, slugToUrlPath(slug)),
           },
         });
       }

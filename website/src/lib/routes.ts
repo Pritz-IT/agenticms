@@ -28,7 +28,7 @@ export function slugToUrlPath(slug: string | undefined): string {
 
 /** Public pagination URL; __page paths are build output only. */
 export function pageUrlPath(slug: string | undefined, pageNumber: number): string {
-  return pageNumber === 1 ? slugToUrlPath(slug) : `${slug ? `/${slug}` : "/"}?page=${pageNumber}`;
+  return pageNumber === 1 ? slugToUrlPath(slug) : `${slugToUrlPath(slug)}?page=${pageNumber}`;
 }
 
 function escapeXml(value: string): string {

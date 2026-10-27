@@ -90,7 +90,7 @@ async function createLocaleForSite(app: FastifyInstance, siteId: string, body: C
       });
       assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
       return created;
-    });
+    }, { timeout: 15000 });
 
     request.log.info({ ...context, locale: locale.code }, "locale.create done");
     return reply.status(201).send(locale);
@@ -201,7 +201,7 @@ async function updateLocaleForSite(
         || locale.sortOrder !== existing.sortOrder || locale.isDefault !== existing.isDefault
         || (shouldBeDefault && site.defaultLocale !== code);
       return { locale, changed };
-    });
+    }, { timeout: 15000 });
 
     if (!updated) {
       request.log.info(context, "locale.update NO-OP — locale not found");
@@ -236,7 +236,7 @@ async function deleteLocaleForSite(app: FastifyInstance, siteId: string, id: str
       await tx.locale.delete({ where: { id } });
       assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
       return { status: 200, body: { ok: true } };
-    });
+    }, { timeout: 15000 });
     if (result.status === 409) request.log.warn(context, "locale.delete rejected — translations exist");
     request.log.info(context, result.status === 200 ? "locale.delete done" : "locale.delete NO-OP — refused or nothing matched");
     return reply.status(result.status).send(result.body);

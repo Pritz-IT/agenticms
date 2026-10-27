@@ -60,6 +60,22 @@ export function parseBlogListFilter(value: string): BlogListFilter {
   return filter;
 }
 
+export function parsePageBlogListFilters(pagePath: string, values: Record<string, string>): Record<string, BlogListFilter> {
+  const filters = Object.fromEntries(Object.entries(values).map(([key, value]) => {
+    try {
+      return [key, parseBlogListFilter(value)];
+    } catch (error) {
+      if (!(error instanceof BlogListFilterError)) throw error;
+      throw new BlogListFilterError(`Page ${pagePath}, bloglist field ${key}: ${error.message}`);
+    }
+  }));
+  const paginatedKeys = Object.keys(filters).filter((key) => filters[key].pageSize !== null);
+  if (paginatedKeys.length > 1) {
+    throw new BlogListFilterError(`Page ${pagePath}: Only one bloglist per page can be paginated (${paginatedKeys.join(", ")})`);
+  }
+  return filters;
+}
+
 export function resolveBlogList(posts: BlogPostView[], filter: BlogListFilter, locale: string): BlogPostView[] {
   const matched = posts.filter((post) => {
     if (post.locale !== locale || (filter.categories.length && !filter.categories.includes(post.category.key))) return false;

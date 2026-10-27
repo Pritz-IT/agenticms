@@ -1,9 +1,10 @@
 import { Prisma, type PrismaClient, type Site } from "@prisma/client";
 import type { FastifyBaseLogger } from "fastify";
+import { stat } from "node:fs/promises";
 import { Parser } from "htmlparser2";
 import { findImagesWithoutAlt, findSanitizerLoss, sanitizeRichTextValue } from "../../lib/content-sanitize.js";
 import { LayoutKindError } from "./layout-kind.js";
-import { detectImageType, PostMediaError, postMediaUrl, storePostMedia } from "./post-media.js";
+import { detectImageType, PostMediaError, postMediaDiskPath, postMediaUrl, referencedMediaUrls, storePostMedia } from "./post-media.js";
 import { listPosts, PostError, savePostInTx, validatePostInput, type PostDto, type PostInput } from "./posts.js";
 import { assertNoRouteCollisions, collectSiteRoutes, lockSiteRoutes, RouteCollisionError } from "./route-lock.js";
 import { postUrlPath } from "./urls.js";
@@ -207,6 +208,19 @@ export async function pushPosts(prisma: PrismaClient, site: PushSite, body: unkn
   let source = "push";
   try {
     const prepared = preparePush(body);
+    for (const file of prepared.files) {
+      source = file.source;
+      for (const src of referencedMediaUrls(file.html, file.cover)) {
+        const diskPath = postMediaDiskPath(site.key, src);
+        if (!diskPath || !src.startsWith(`/media/${file.key}/`)) reject(source, "media", `Invalid post media: ${src}`);
+        try {
+          if (!(await stat(diskPath)).isFile()) reject(source, "media", `Missing post media: ${src}`);
+        } catch (error) {
+          if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) reject(source, "media", `Missing post media: ${src}`);
+          throw error;
+        }
+      }
+    }
     await validateBatch(prisma, site, prepared.posts, prepared.draft);
     for (const post of prepared.posts) {
       source = post.files[0].source;

@@ -7,7 +7,7 @@ import { ApiError } from "../src/api/client";
 import type { BlogPost } from "../src/api/types";
 
 describe("blog editor helpers", () => {
-  it("sends only writable fields, preserving every translation and its status", () => {
+  it("sends only writable fields, preserving every translation without publication status", () => {
     const translation = {
       ...emptyTranslation(),
       title: "Bus",
@@ -29,8 +29,8 @@ describe("blog editor helpers", () => {
     assert.equal("updatedAt" in draft, false);
     assert.equal("updatedAt" in draft.translations.de, false);
     assert.equal("url" in draft.translations.de, false);
-    assert.equal(draft.translations.de.status, "published");
-    assert.equal(draft.translations.en.status, "draft");
+    assert.equal("status" in draft.translations.de, false);
+    assert.equal("status" in draft.translations.en, false);
     assert.deepEqual(draft.tags, ["transport"]);
   });
   it("prefills the slug until a manual edit, independently per translation", () => {
@@ -62,6 +62,7 @@ describe("blog editor helpers", () => {
     const payload = postSaveInput(draft, { de: empty });
     assert.deepEqual(Object.keys(payload.translations), ["de", "fr", "it", "es"]);
     assert.equal(draft.translations.en, empty);
+    for (const translation of Object.values(payload.translations)) assert.equal("status" in translation, false);
   });
   it("matches locale-aware public routes on the staging host", () => {
     assert.equal(

@@ -146,7 +146,7 @@ export async function createPageForSite(
 
       assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
       return createdPage;
-    });
+    }, { timeout: 15000 });
 
     request.log.info({ op: "page.create", siteId, pageId: page.id }, "page.create done");
     return reply.status(201).send(page);
@@ -196,7 +196,7 @@ export async function updatePageForSite(
       const changed = page.path !== existing.path || page.layoutId !== existing.layoutId
         || page.sortOrder !== existing.sortOrder || page.isPublished !== existing.isPublished;
       return { page, changed };
-    });
+    }, { timeout: 15000 });
 
     if (result.error) {
       request.log.info({ op: "page.update", siteId, pageId: id }, `page.update NO-OP — ${result.error}`);
@@ -227,7 +227,7 @@ export async function deletePageForSite(
       if (category) return { status: 409, body: { error: `Page is used by category ${category.key}` } };
       await tx.page.delete({ where: { id } });
       return { status: 200, body: { ok: true } };
-    });
+    }, { timeout: 15000 });
     if (result.status === 409) request.log.warn(context, "page.delete rejected — page used by category");
     request.log.info(context, result.status === 200 ? "page.delete done" : "page.delete NO-OP — refused or nothing matched");
     return reply.status(result.status).send(result.body);

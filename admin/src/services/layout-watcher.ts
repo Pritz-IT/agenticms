@@ -279,7 +279,7 @@ export async function prefillContent(
         )
       );
       return (await tx.content.createMany({ data: rows, skipDuplicates: true })).count;
-    });
+    }, { timeout: 15000 });
     log.info({ ...context, siteId: site.id, count }, count > 0 ? "content.prefill done" : "content.prefill NO-OP — no missing rows");
   } catch (err) {
     log.error({ ...context, err }, "content.prefill failed");

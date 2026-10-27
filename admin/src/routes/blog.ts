@@ -9,7 +9,7 @@ import { sendRouteCollision } from "./route-collision.js";
 import { deletePost, getPost, listPosts, PostError, type PostInput, savePost, setPostTranslationStatus } from "../services/blog/posts.js";
 import { detectImageType, PostMediaError, postMediaDiskPath, storePostMedia } from "../services/blog/post-media.js";
 
-import { BlogListFilterError, blogListDefaults, parseBlogListFilter, resolveBlogList, type BlogList } from "../services/blog/bloglist.js";
+import { BlogListFilterError, blogListDefaults, parsePageBlogListFilters, resolveBlogList, type BlogList } from "../services/blog/bloglist.js";
 import { loadBlogPostViews } from "../services/blog/views.js";
 import { paginate } from "../services/blog/pagination.js";
 import { pageRouteSlug, slugToUrlPath } from "../services/blog/urls.js";
@@ -32,11 +32,14 @@ export async function registerSiteBlogRoutes(app: FastifyInstance) {
     }
     try {
       const contents = await app.prisma.content.findMany({ where: { pageId: page.id, locale: site.defaultLocale } });
+      const values = Object.fromEntries(Object.entries(blogListDefaults(page.layout?.detectedKeys)).map(([key, initial]) => [
+        key, contents.find((content) => content.key === key)?.value ?? initial,
+      ]));
+      const filters = parsePageBlogListFilters(page.path, values);
       const posts = await loadBlogPostViews(app.prisma, site.id, "staging");
       const basePath = slugToUrlPath(pageRouteSlug(page.path, locale, site.defaultLocale));
       const lists: Record<string, BlogList> = {};
-      for (const [key, initial] of Object.entries(blogListDefaults(page.layout?.detectedKeys))) {
-        const filter = parseBlogListFilter(contents.find((content) => content.key === key)?.value ?? initial);
+      for (const [key, filter] of Object.entries(filters)) {
         const matched = resolveBlogList(posts, filter, locale)
           .map(({ body, metaTitle, metaDescription, translations, ...summary }) => summary);
         if (filter.pageSize === null) lists[key] = { posts: matched, pagination: null };

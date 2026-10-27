@@ -93,6 +93,14 @@ async function seedMedia() {
 }
 
 describe("blog build config", () => {
+  it.each(["production", "staging"] as const)("rejects two paginated layout defaults on %s naming the page and keys", async (target) => {
+    const page = await app.prisma.page.findUniqueOrThrow({ where: { id: fixture.page.id } });
+    await app.prisma.layout.update({ where: { id: page.layoutId! }, data: { detectedKeys: {
+      main: { type: "bloglist", initial: "" }, sidebar: { type: "bloglist", initial: "" },
+    } } });
+    await expect(buildSiteConfig(app.prisma, "demo", target)).rejects.toThrow("Page /news: Only one bloglist per page can be paginated (main, sidebar)");
+  });
+
   it.each(["production", "staging"] as const)("selects %s translations and resolves lists per locale", async (target) => {
     const result = await buildSiteConfig(app.prisma, "demo", target);
     expect(result.buildTarget).toBe(target);

@@ -68,3 +68,15 @@ it("enforces blog constraints and cascades a site deletion through all blog mode
     expect(await model.count()).toBe(0);
   }
 });
+
+it("indexes blog foreign keys for category, layout and tag lookups", async () => {
+  const indexes = await prisma.$queryRaw<{ indexname: string; indexdef: string }[]>`
+    SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()
+      AND tablename IN ('blog_posts', 'blog_categories', 'blog_post_tags')
+  `;
+  for (const [table, column] of [["blog_posts", "category_id"], ["blog_posts", "layout_id"],
+    ["blog_categories", "default_layout_id"], ["blog_post_tags", "tag_id"]]) {
+    expect(indexes).toContainEqual({ indexname: `${table}_${column}_idx`,
+      indexdef: `CREATE INDEX ${table}_${column}_idx ON public.${table} USING btree (${column})` });
+  }
+});

@@ -19,7 +19,7 @@ export function postDraft(post: BlogPost): BlogPostInput {
   return {
     ...shared,
     translations: Object.fromEntries(
-      Object.entries(translations).map(([locale, { updatedAt, url, ...fields }]) => [locale, fields])
+      Object.entries(translations).map(([locale, { updatedAt, url, status, ...fields }]) => [locale, fields])
     ),
   };
 }
@@ -32,7 +32,7 @@ export function postSaveInput(
     ...draft,
     translations: Object.fromEntries(Object.entries(draft.translations).filter(([locale, translation]) =>
       savedTranslations[locale] || translation.title || translation.slug || translation.body
-    )),
+    ).map(([locale, { status, ...fields }]) => [locale, fields])),
   };
 }
 

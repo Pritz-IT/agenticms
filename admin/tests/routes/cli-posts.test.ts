@@ -60,6 +60,35 @@ async function expectNoWrites() {
 }
 
 describe("CLI posts", () => {
+  it.each(["html", "cover"])("rejects missing existing media in %s with source and src", async (field) => {
+    const src = "/media/routing/missing.png";
+    const response = await push([file(), file({ source: "routing.en.md", locale: "en",
+      [field]: field === "html" ? `<img src="${src}" alt="Map">` : src,
+    })]);
+    expect(response.statusCode).toBe(422);
+    expect(response.json().issues).toContainEqual({ source: "routing.en.md", problem: "media", detail: `Missing post media: ${src}` });
+    await expectNoWrites();
+  });
+  it.each(["foreign-site", "foreign-post", "directory", "traversal"])("rejects existing media from %s", async (kind) => {
+    const src = kind === "foreign-post" ? "/media/other/existing.png" : kind === "traversal" ? "/media/routing/../existing.png" : "/media/routing/existing.png";
+    const disk = mediaService.postMediaDiskPath(kind === "foreign-site" ? "other" : "demo", src);
+    if (disk) {
+      await fs.mkdir(kind === "directory" ? disk : path.dirname(disk), { recursive: true });
+      if (kind !== "directory") await fs.writeFile(disk, png);
+    }
+    const response = await push([file({ cover: src })]);
+    expect(response.statusCode).toBe(422);
+    expect(response.json().issues[0]).toMatchObject({ source: "routing.de.md", problem: "media", detail: expect.stringContaining(src) });
+    expect(await app.prisma.blogPost.count()).toBe(0);
+  });
+  it("reuses existing media in HTML for the same site and post", async () => {
+    await push([imageFile()], false, media);
+    const before = await getPost();
+    const response = await push([file({ html: before.translations.de.body, cover: before.translations.de.coverImage })]);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().posts[0].action).toBe("unchanged");
+  });
+
   it("creates draft translations and lists only the site's keys, category and locale statuses", async () => {
     const response = await push([file(), file({ source: "routing.en.md", locale: "en" })]);
     expect(response.statusCode).toBe(200);
@@ -198,9 +227,12 @@ describe("CLI posts", () => {
   });
   it("accepts existing asset/media URLs and GFM table markup", async () => {
     const html = '<figure><img src="/assets/map.png" alt="Map"><figcaption>Map</figcaption></figure><table><thead><tr><th>Header</th></tr></thead><tbody><tr><td colspan="2">Cell</td></tr></tbody></table>';
+    const existing = mediaService.postMediaDiskPath("demo", "/media/routing/existing.png")!;
+    await fs.mkdir(path.dirname(existing), { recursive: true });
+    await fs.writeFile(existing, png);
     expect((await push([file({ html, cover: "/media/routing/existing.png" })])).statusCode).toBe(200);
     expect((await getPost()).translations.de.body).toContain('<td colspan="2">Cell</td>');
-    await expect(fs.stat(config.POST_MEDIA_DIR)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(existing)).toEqual(png);
   });
   it("rechecks published guards after media storage and under the transaction lock", async () => {
     await push();

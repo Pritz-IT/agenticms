@@ -23,6 +23,15 @@ function parseEnvAssignments(contents: string): Map<string, string> {
 }
 
 describe("env examples", () => {
+  it("documents post media storage and keeps dev uploads in the state directory", async () => {
+    const example = await readFile(path.join(repoRoot, "admin/.env.example"), "utf8");
+    expect(parseEnvAssignments(example).get("POST_MEDIA_DIR")).toBe("./post-media");
+    const dev = await readFile(path.join(repoRoot, "scripts/dev.sh"), "utf8");
+    expect(dev).toContain('POST_MEDIA_DIR="$STATE_DIR/post-media"');
+    expect(dev).toMatch(/mkdir -p[^\n]*"\$POST_MEDIA_DIR"/);
+    expect(dev).toContain('POST_MEDIA_DIR="$POST_MEDIA_DIR"');
+  });
+
   it("do not ship known secret placeholder values", async () => {
     const envExamplePaths = [
       path.join(repoRoot, ".env.example"),

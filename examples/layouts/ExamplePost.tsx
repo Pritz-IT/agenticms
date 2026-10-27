@@ -1,3 +1,4 @@
+import { formatPostDate } from "./lib/format-post-date";
 import { RichText, type PostLayoutProps } from "@agenticms/components";
 
 export const layoutKind = "post";
@@ -32,7 +33,7 @@ export default function ExamplePost({ post, content, locale, locales }: PostLayo
           <header>
             <p className="example-post-category">{post.category.name}</p>
             <h1>{post.title}</h1>
-            {post.publishedAt && <p><time dateTime={post.publishedAt}>{post.publishedAt}</time></p>}
+            {post.publishedAt && <p><time dateTime={post.publishedAt}>{formatPostDate(post.publishedAt, locale)}</time></p>}
             {post.tags.length > 0 && (
               <ul className="example-post-tags">
                 {post.tags.map((tag) => <li key={tag.key}>{tag.name}</li>)}

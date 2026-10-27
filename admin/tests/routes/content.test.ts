@@ -282,7 +282,10 @@ describe("bloglist content saves", () => {
   it("counts layout defaults even before a content row exists", async () => {
     const layout = await app.prisma.layout.create({ data: { siteId: defaultSiteId, name: "Lists", filePath: "Lists.tsx", detectedKeys: { main: { type: "bloglist", initial: "" }, second: { type: "bloglist", initial: "" } } } });
     await app.prisma.page.update({ where: { id: pageId }, data: { layoutId: layout.id } });
-    expect((await saveList("main")).statusCode).toBe(400);
+    const rejected = await saveList("main");
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().message).toBe("Page /test-page: Only one bloglist per page can be paginated (main, second)");
+    expect(await app.prisma.content.count({ where: { pageId } })).toBe(0);
     expect((await saveList("second", '{"pageSize":null,"limit":3}')).statusCode).toBe(200);
     expect((await saveList("main")).statusCode).toBe(200);
   });
@@ -361,6 +364,27 @@ describe("bloglist preview and views", () => {
   });
   const preview = (query = "locale=de", id = pageId, site = "demo") => app.inject({ method: "GET", url: `/api/sites/${site}/pages/${id}/blog-lists?${query}`, headers: { authorization: `Bearer ${editorToken}` } });
 
+  it.each(["1", "2"])("rejects two paginated layout defaults before paging page %s", async (pageNumber) => {
+    const page = await app.prisma.page.findUniqueOrThrow({ where: { id: pageId } });
+    await app.prisma.layout.update({ where: { id: page.layoutId! }, data: { detectedKeys: {
+      main: { type: "bloglist", initial: "" }, sidebar: { type: "bloglist", initial: "" },
+    } } });
+    const result = await preview(`locale=de&page=${pageNumber}`);
+    expect(result.statusCode).toBe(400);
+    expect(result.json().error).toBe("Page /test-page: Only one bloglist per page can be paginated (main, sidebar)");
+  });
+  it("uses trailing slashes for every preview pagination URL", async () => {
+    const post = await app.prisma.blogPost.findFirstOrThrow();
+    await app.prisma.blogPost.create({ data: { siteId: defaultSiteId, key: "second", categoryId: post.categoryId,
+      translations: { create: { categoryId: post.categoryId, locale: "de", slug: "second", title: "Second" } },
+    } });
+    await saveList("main", '{"pageSize":1}');
+    const first = (await preview()).json().main.pagination;
+    const second = (await preview("locale=de&page=2")).json().main.pagination;
+    expect(first.nextUrl).toBe("/de/test-page/?page=2");
+    expect(second.prevUrl).toBe("/de/test-page/");
+    expect(second.pages).toEqual([{ number: 1, url: "/de/test-page/" }, { number: 2, url: "/de/test-page/?page=2" }]);
+  });
   it("includes drafts, uses layout initials, and returns every bloglist only", async () => {
     const result = await preview();
     expect(result.statusCode).toBe(200);

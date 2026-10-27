@@ -42,15 +42,15 @@ assert.equal(first.kind, "page");
 assert.equal(second.kind, "page");
 if (first.kind === "page" && second.kind === "page") {
   assert.deepEqual(routeMeta(second, { ...context, pathname: "/news/__page/2/" }), {
-    metaTitle: "News – Seite 2", metaDescription: "News description", ogImage: "", canonical: "https://x/news?page=2",
+    metaTitle: "News – Seite 2", metaDescription: "News description", ogImage: "", canonical: "https://x/news/?page=2",
   });
   const content = { ...first.content, "_meta.canonical": "https://other.example/original/", "_meta.image": "/cover.webp" };
   assert.deepEqual(routeMeta({ ...first, content }, context), {
     metaTitle: "News", metaDescription: "News description", ogImage: "https://x/cover.webp", canonical: content["_meta.canonical"],
   });
   assert.equal(routeMeta(first, context).canonical, "https://x/news/");
-  assert.equal(routeMeta({ ...second, content }, context).canonical, "https://x/news?page=2");
-  assert.equal(routeMeta({ ...second, locale: "en" }, context).canonical, "https://x/en/news?page=2");
+  assert.equal(routeMeta({ ...second, content }, context).canonical, "https://x/news/?page=2");
+  assert.equal(routeMeta({ ...second, locale: "en" }, context).canonical, "https://x/en/news/?page=2");
   assert.equal(routeMeta({ ...second, locale: "en" }, context).metaTitle, "News – Page 2");
   assert.equal(routeMeta({ ...second, page: { ...second.page, path: "/" } }, context).canonical, "https://x/?page=2");
   assert.equal(routeMeta({ ...first, content: {} }, context).metaTitle, "Test Site");

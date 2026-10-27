@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import pino from "pino";
 import type { FastifyInstance } from "fastify";
 import type { Site } from "@prisma/client";
@@ -41,6 +41,34 @@ function request(method: "GET" | "POST" | "PUT" | "DELETE", resource = "", paylo
 }
 
 describe("blog posts", () => {
+  it.each(["included", "omitted"])("restores a cleared date when a published translation is %s", async (variant) => {
+    await request("POST", "", input());
+    await request("POST", "/routing/translations/de/publish");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-31T23:30:00.000Z"));
+    try {
+      auth = `Bearer ${getAccessToken(await app.prisma.user.findFirstOrThrow())}`;
+      const response = await request("PUT", "/routing", { ...input(), publishedAt: null,
+        translations: variant === "included" ? input().translations : { en: translation() },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().publishedAt).toBe("2026-12-31");
+      expect(response.json().translations.de.status).toBe("published");
+      expect(records.some((r) => r.level === 30 && r.msg.includes("publishedAt defaulted"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("allows an undated post when the final published translation becomes draft", async () => {
+    await request("POST", "", input());
+    await request("POST", "/routing/translations/de/publish");
+    const response = await request("PUT", "/routing", { ...input(), publishedAt: null,
+      translations: { de: { ...translation(), status: "draft" } },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().publishedAt).toBeNull();
+  });
+
   it("creates de+en as drafts and returns keys/names without database ids", async () => {
     const response = await request("POST", "", { ...input(), layout: "Post" });
     expect(response.statusCode).toBe(201);

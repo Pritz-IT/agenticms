@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, Check, ImageIcon, Link as LinkIcon } from "lucide-react";
 import { fetchAssetLibrary, uploadAsset } from "../api/assets";
 import { AuthedImage } from "./AuthedImage";
+import { toastError } from "../lib/toast-error";
 import { showBlogError } from "../lib/blog-error";
 
 interface ImagePickerProps {
@@ -46,7 +47,10 @@ export function ImagePicker({ siteKey, value, onChange, mediaUpload, allowCustom
       setMode("library");
       setLibraryOpen(false);
     },
-    onError: (error) => showBlogError("upload image", error),
+    onError: (error) => {
+      if (mediaUpload) showBlogError("upload image", error);
+      else toastError("Failed to upload image", error, "image-picker");
+    },
   });
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {

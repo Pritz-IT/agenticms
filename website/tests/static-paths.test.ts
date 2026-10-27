@@ -26,9 +26,10 @@ const second = paths.find(({ params }) => params.slug === "news/__page/2")!.prop
 assert.equal(second.kind, "page");
 if (second.kind === "page") {
   assert.equal(second.pageNumber, 2);
+  assert.equal(second.blogLists.articles.pagination?.prevUrl, "/news/");
   assert.deepEqual(second.content, resolveContent(config.pages[0], "de", "de"));
   assert.deepEqual(second.blogLists.articles.posts.map(({ key }) => key), config.posts.slice(12, 24).map(({ key }) => key));
-  assert.equal(second.blogLists.articles.pagination?.pages[1].url, "/news?page=2");
+  assert.equal(second.blogLists.articles.pagination?.pages[1].url, "/news/?page=2");
 }
 const english = paths.find(({ params }) => params.slug === "en/news")!.props;
 assert.equal(english.kind, "page");
@@ -67,7 +68,7 @@ for (const postKeys of [["post-1"], []]) {
 for (const sitemapConfig of [config, homepage]) {
   const urls = buildSitemapUrls(sitemapConfig, "de");
   assert.equal(urls.length, 30);
-  assert.ok(urls.includes(sitemapConfig === homepage ? "https://x/?page=2" : "https://x/news?page=2"));
+  assert.ok(urls.includes(sitemapConfig === homepage ? "https://x/?page=2" : "https://x/news/?page=2"));
   assert.ok(!buildSitemapXml(urls).includes("__page"));
 }
 
@@ -77,7 +78,7 @@ englishPagination.posts.push({ ...englishPagination.posts[1], locale: "en", url:
 const englishSecond = buildStaticPaths(englishPagination, "de").find(({ params }) => params.slug === "en/news/__page/2")!.props;
 assert.equal(englishSecond.kind, "page");
 if (englishSecond.kind === "page") {
-  assert.equal(englishSecond.blogLists.articles.pagination?.prevUrl, "/en/news");
+  assert.equal(englishSecond.blogLists.articles.pagination?.prevUrl, "/en/news/");
   assert.equal(englishSecond.blogLists.articles.posts[0].url, "/en/news/second-english-post");
 }
 

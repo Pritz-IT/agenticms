@@ -228,6 +228,7 @@ model BlogCategory {
   translations    BlogPostTranslation[]
 
   @@unique([siteId, key])
+  @@index([defaultLayoutId])
   @@map("blog_categories")
 }
 
@@ -280,6 +281,8 @@ model BlogPost {
   translations BlogPostTranslation[]
 
   @@unique([siteId, key])
+  @@index([categoryId])
+  @@index([layoutId])
   @@map("blog_posts")
 }
 
@@ -290,6 +293,7 @@ model BlogPostTag {
   tag    BlogTag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([postId, tagId])
+  @@index([tagId])
   @@map("blog_post_tags")
 }
 

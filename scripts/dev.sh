@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="$ROOT_DIR/.agenticms"
 LAYOUTS_DIR="$STATE_DIR/layouts"
 ASSETS_DIR="$STATE_DIR/assets"
+POST_MEDIA_DIR="$STATE_DIR/post-media"
 BUILDS_DIR="$STATE_DIR/builds"
 NGINX_CONF_DIR="$STATE_DIR/nginx-conf"
 
@@ -139,7 +140,7 @@ start_process() {
 main() {
   require_command npm
   require_command lsof
-  mkdir -p "$LAYOUTS_DIR" "$ASSETS_DIR" "$BUILDS_DIR" "$NGINX_CONF_DIR"
+  mkdir -p "$LAYOUTS_DIR" "$ASSETS_DIR" "$POST_MEDIA_DIR" "$BUILDS_DIR" "$NGINX_CONF_DIR"
 
   start_postgres
 
@@ -169,6 +170,7 @@ main() {
     HOST="0.0.0.0" \
     LAYOUTS_DIR="$LAYOUTS_DIR" \
     ASSETS_DIR="$ASSETS_DIR" \
+    POST_MEDIA_DIR="$POST_MEDIA_DIR" \
     ASTRO_PROJECT_DIR="$ROOT_DIR/website" \
     BUILDS_DIR="$BUILDS_DIR" \
     npm run dev

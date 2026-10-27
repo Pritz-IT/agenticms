@@ -118,7 +118,7 @@ function makeConfig(pages: Page[], siteUrl: string | null): SiteConfig {
   const config = blogConfig();
   const urls = buildSitemapUrls(config, "de");
   assert.deepEqual(urls, [
-    "https://x/news/", "https://x/news?page=2", "https://x/news?page=3", "https://x/en/news/",
+    "https://x/news/", "https://x/news/?page=2", "https://x/news/?page=3", "https://x/en/news/",
     ...config.posts.map((post) => `https://x${post.url}`),
   ]);
   assert.ok(!urls.some((url) => url.includes("__page")));
