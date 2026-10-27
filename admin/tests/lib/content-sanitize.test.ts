@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   sanitizeRichTextValue,
+  findImagesWithoutAlt,
+  findSanitizerLoss,
   safeLinkUrl,
   safeImageUrl,
   sanitizeContentValue,
@@ -17,8 +19,8 @@ describe("sanitizeRichTextValue", () => {
     expect(out).toContain("hi");
   });
 
-  it("strips <img> (not in the allow-list) and its onerror payload", () => {
-    const out = sanitizeRichTextValue('<img src=x onerror="alert(1)">');
+  it("drops images outside the allowed asset and media paths", () => {
+    const out = sanitizeRichTextValue('<img src="https://evil/x.png" onerror="alert(1)">');
     expect(out).not.toContain("onerror");
     expect(out).not.toContain("<img");
   });
@@ -40,6 +42,35 @@ describe("sanitizeRichTextValue", () => {
     const safe = sanitizeRichTextValue('<a href="https://example.com">x</a>');
     expect(safe).toContain('href="https://example.com"');
     expect(safe).toContain("noopener");
+  });
+
+  it("keeps figures, tables, and images from allowed paths", () => {
+    expect(
+      sanitizeRichTextValue(
+        '<figure><img src="/media/p/a.png" alt="a" width="20" height="10"><figcaption>Caption</figcaption></figure><table><thead><tr><th scope="col">Name</th></tr></thead><tbody><tr><td colspan="2" rowspan="1">Value</td></tr></tbody></table>'
+      )
+    ).toBe(
+      '<figure><img src="/media/p/a.png" alt="a" width="20" height="10" /><figcaption>Caption</figcaption></figure><table><thead><tr><th scope="col">Name</th></tr></thead><tbody><tr><td colspan="2" rowspan="1">Value</td></tr></tbody></table>'
+    );
+  });
+});
+
+describe("rich text loss checks", () => {
+  it("reports removed elements and meaningful attributes", () => {
+    const input = '<img src="https://evil/x.png"><script>alert(1)</script>';
+    expect(findSanitizerLoss(input, sanitizeRichTextValue(input))).toEqual(
+      expect.arrayContaining([
+        { element: "img", attribute: "src", value: "https://evil/x.png" },
+        { element: "script" },
+      ])
+    );
+  });
+
+  it("finds images with missing or blank alt text", () => {
+    expect(findImagesWithoutAlt('<img src="/media/a.png"><img src="/assets/b.png" alt=" "><img src="/assets/c.png" alt="c">')).toEqual([
+      "/media/a.png",
+      "/assets/b.png",
+    ]);
   });
 });
 

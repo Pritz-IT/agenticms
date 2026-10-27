@@ -1,4 +1,5 @@
 import sanitizeHtml from "sanitize-html";
+import { parseDocument, type ChildNode } from "htmlparser2";
 
 /**
  * Server-side sanitisation of CMS content at the WRITE boundary.
@@ -21,30 +22,121 @@ export const RICH_TEXT_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     "br",
     "code",
     "em",
+    "figcaption",
+    "figure",
     "h2",
     "h3",
     "h4",
     "hr",
     "li",
+    "img",
     "ol",
     "p",
     "pre",
     "strong",
     "sub",
     "sup",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
     "ul",
   ],
   allowedAttributes: {
     a: ["href", "target", "rel"],
+    img: ["src", "alt", "width", "height"],
+    td: ["colspan", "rowspan", "scope"],
+    th: ["colspan", "rowspan", "scope"],
   },
   allowedSchemes: ["http", "https", "mailto", "tel"],
   transformTags: {
     a: sanitizeHtml.simpleTransform("a", { rel: "noopener noreferrer" }, true),
   },
+  exclusiveFilter: (frame) =>
+    frame.tag === "img" &&
+    !(frame.attribs.src?.startsWith("/assets/") || frame.attribs.src?.startsWith("/media/")),
 };
 
 export function sanitizeRichTextValue(value: string): string {
   return sanitizeHtml(value, RICH_TEXT_SANITIZE_OPTIONS);
+}
+
+export interface SanitizerLoss {
+  element: string;
+  attribute?: string;
+  value?: string;
+}
+
+type ParsedElement = {
+  name: string;
+  attribs: Record<string, string>;
+  children: ChildNode[];
+};
+
+const MEANINGFUL_RICH_TEXT_ATTRIBUTES = new Set(["src", "alt", "href", "colspan", "rowspan"]);
+const IGNORED_DOCUMENT_ELEMENTS = new Set(["html", "head", "body"]);
+
+function isParsedElement(node: ChildNode): node is ChildNode & ParsedElement {
+  return "name" in node && "attribs" in node;
+}
+
+function visitHtmlElements(html: string, visit: (element: ParsedElement) => void): void {
+  const visitNodes = (nodes: ChildNode[]) => {
+    for (const node of nodes) {
+      if (isParsedElement(node)) visit(node);
+      if ("children" in node) visitNodes(node.children);
+    }
+  };
+
+  visitNodes(parseDocument(html).children);
+}
+
+function lossTokens(html: string): SanitizerLoss[] {
+  const tokens: SanitizerLoss[] = [];
+  visitHtmlElements(html, ({ name, attribs }) => {
+    if (IGNORED_DOCUMENT_ELEMENTS.has(name)) return;
+    tokens.push({ element: name });
+    for (const [attribute, value] of Object.entries(attribs)) {
+      if (MEANINGFUL_RICH_TEXT_ATTRIBUTES.has(attribute)) {
+        tokens.push({ element: name, attribute, value });
+      }
+    }
+  });
+  return tokens;
+}
+
+function tokenKey({ element, attribute, value }: SanitizerLoss): string {
+  return `${element}\u0000${attribute ?? ""}\u0000${value ?? ""}`;
+}
+
+/** Returns elements and meaningful attributes removed by sanitisation. */
+export function findSanitizerLoss(input: string, output: string): SanitizerLoss[] {
+  const inputTokens = lossTokens(input);
+  const outputCounts = new Map<string, number>();
+  for (const token of lossTokens(output)) {
+    const key = tokenKey(token);
+    outputCounts.set(key, (outputCounts.get(key) ?? 0) + 1);
+  }
+
+  const losses: SanitizerLoss[] = [];
+  for (const token of inputTokens) {
+    const key = tokenKey(token);
+    const remaining = outputCounts.get(key) ?? 0;
+    if (remaining > 0) outputCounts.set(key, remaining - 1);
+    else losses.push(token);
+  }
+  return losses;
+}
+
+/** Returns image sources whose alt text is missing or blank. */
+export function findImagesWithoutAlt(html: string): string[] {
+  const sources: string[] = [];
+  visitHtmlElements(html, ({ name, attribs }) => {
+    if (name === "img" && !attribs.alt?.trim()) sources.push(attribs.src ?? "");
+  });
+  return sources;
 }
 
 // Schemes a stored URL may carry. Anything else (javascript:, data:, vbscript:,
