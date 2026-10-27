@@ -48,7 +48,7 @@ export function PageEditorPage() {
 
   // Queries
   const localesQuery = useQuery({ queryKey: ["locales", siteKey], queryFn: () => fetchLocales(siteKey) });
-  const layoutsQuery = useQuery({ queryKey: ["layouts", siteKey], queryFn: () => fetchLayouts(siteKey) });
+  const layoutsQuery = useQuery({ queryKey: ["layouts", siteKey, "page"], queryFn: () => fetchLayouts(siteKey, "page") });
   const pageQuery = useQuery({
     queryKey: ["pages", siteKey, id],
     queryFn: () => fetchPage(siteKey, id!),

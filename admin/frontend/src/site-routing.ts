@@ -12,8 +12,8 @@ export function replaceSiteKeyInPath(pathname: string, currentSiteKey: string, n
   const currentPrefix = `/sites/${currentSiteKey}/`;
   if (pathname.startsWith(currentPrefix)) {
     const section = pathname.slice(currentPrefix.length).split("/")[0];
-    if (section === "pages" && pathname.slice(currentPrefix.length).split("/").length > 1) {
-      return siteSectionPath(nextSiteKey, "pages");
+    if ((section === "pages" || section === "blogs") && pathname.slice(currentPrefix.length).split("/").length > 1) {
+      return siteSectionPath(nextSiteKey, section);
     }
     return pathname.replace(currentPrefix, `/sites/${nextSiteKey}/`);
   }

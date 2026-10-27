@@ -5,6 +5,9 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
+  BookOpen,
+  Tags,
+  Folder,
   FileText,
   FolderKanban,
   Globe2,
@@ -40,6 +43,7 @@ function contentItems(siteKey: string): NavItem[] {
     { to: siteSectionPath(siteKey, "navigation"), icon: Menu, label: "Navigation" },
     { to: siteSectionPath(siteKey, "assets"), icon: Image, label: "Assets" },
     { to: siteSectionPath(siteKey, "submissions"), icon: ClipboardList, label: "Submissions" },
+    { to: siteSectionPath(siteKey, "blogs"), icon: BookOpen, label: "Blogs" },
   ];
 }
 
@@ -54,6 +58,8 @@ function adminItems(siteKey: string): NavItem[] {
   return [
     { to: siteSectionPath(siteKey, "settings"), icon: Settings, label: "Settings" },
     { to: siteSectionPath(siteKey, "locales"), icon: Globe2, label: "Languages" },
+    { to: siteSectionPath(siteKey, "blog-categories"), icon: Folder, label: "Blog categories" },
+    { to: siteSectionPath(siteKey, "blog-tags"), icon: Tags, label: "Tags" },
     { to: siteSectionPath(siteKey, "staging-access"), icon: ShieldCheck, label: "Staging" },
     { to: siteSectionPath(siteKey, "cli"), icon: Terminal, label: "CLI" },
     { to: "/users", icon: Users, label: "Users" },

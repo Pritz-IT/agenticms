@@ -33,7 +33,7 @@ export function PagesListPage() {
   const [queuedBuild, setQueuedBuild] = useState<Build | null>(null);
 
   const pagesQuery = useQuery({ queryKey: ["pages", siteKey], queryFn: () => fetchPages(siteKey) });
-  const layoutsQuery = useQuery({ queryKey: ["layouts", siteKey], queryFn: () => fetchLayouts(siteKey) });
+  const layoutsQuery = useQuery({ queryKey: ["layouts", siteKey, "page"], queryFn: () => fetchLayouts(siteKey, "page") });
   const buildsQuery = useQuery({
     queryKey: ["builds", siteKey],
     queryFn: () => fetchBuilds(siteKey),

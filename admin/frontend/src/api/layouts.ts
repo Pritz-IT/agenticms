@@ -1,8 +1,8 @@
 import { api } from "./client";
 import type { GlobalLayoutTemplate, Layout } from "./types";
 
-export function fetchLayouts(siteKey: string): Promise<Layout[]> {
-  return api<Layout[]>(`/api/sites/${siteKey}/layouts`);
+export function fetchLayouts(siteKey: string, kind?: "page" | "post"): Promise<Layout[]> {
+  return api<Layout[]>(`/api/sites/${encodeURIComponent(siteKey)}/layouts${kind ? `?kind=${kind}` : ""}`);
 }
 
 export function fetchLayout(siteKey: string, id: string): Promise<Layout> {

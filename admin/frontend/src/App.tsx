@@ -16,6 +16,10 @@ import { PagesListPage } from "./pages/PagesListPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StagingAccessPage } from "./pages/StagingAccessPage";
 import { UsersPage } from "./pages/UsersPage";
+import { BlogPostsPage } from "./pages/BlogPostsPage";
+import { BlogPostEditorPage } from "./pages/BlogPostEditorPage";
+import { BlogCategoriesPage } from "./pages/BlogCategoriesPage";
+import { BlogTagsPage } from "./pages/BlogTagsPage";
 import { SubmissionsPage } from "./pages/SubmissionsPage";
 import { legacySitePath } from "./site-routing";
 
@@ -61,6 +65,17 @@ export function App() {
               <Route path="/sites/:siteKey/builds" element={<BuildsPage />} />
               <Route path="/sites/:siteKey/layouts" element={<LayoutsPage />} />
               <Route path="/sites/:siteKey/submissions" element={<SubmissionsPage />} />
+
+              <Route path="/sites/:siteKey/blogs" element={<BlogPostsPage />} />
+              <Route path="/sites/:siteKey/blogs/:postKey" element={<BlogPostEditorPage />} />
+              <Route
+                path="/sites/:siteKey/blog-categories"
+                element={<ProtectedRoute requiredRole="admin"><BlogCategoriesPage /></ProtectedRoute>}
+              />
+              <Route
+                path="/sites/:siteKey/blog-tags"
+                element={<ProtectedRoute requiredRole="admin"><BlogTagsPage /></ProtectedRoute>}
+              />
 
               {/* Admin-only routes */}
               <Route

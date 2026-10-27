@@ -417,3 +417,27 @@ it("prefills a new page's bloglist only for the default locale and other keys fo
   expect(await app.prisma.content.findMany({ where: { pageId: res.json().id }, orderBy: [{ key: "asc" }, { locale: "asc" }] }))
     .toMatchObject([{ key: "posts", locale: "en", value: '{"pageSize":5}' }, { key: "title", locale: "de" }, { key: "title", locale: "en" }]);
 });
+
+describe("site locale permissions for content editors", () => {
+  it("lets editors read locales for post editing, but keeps mutations admin-only", async () => {
+    const locale = await app.prisma.locale.create({ data: { siteId: defaultSiteId, code: "en", label: "English", isDefault: true } });
+    const { user } = await createTestUser(app, { role: "editor" });
+    const headers = { authorization: `Bearer ${getAccessToken(user)}` };
+    const read = await app.inject({ method: "GET", url: "/api/sites/demo/locales", headers });
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toMatchObject([{ code: "en", label: "English" }]);
+    for (const method of ["POST", "PATCH", "DELETE"] as const) {
+      const response = await app.inject({
+        method, url: `/api/sites/demo/locales${method === "POST" ? "" : `/${locale.id}`}`, headers,
+        ...(method !== "DELETE" && { payload: { code: "fr", label: "French" } }),
+      });
+      expect(response.statusCode).toBe(403);
+    }
+    expect(await app.prisma.locale.findMany({ where: { siteId: defaultSiteId } })).toMatchObject([{ code: "en" }]);
+  });
+
+  it("still rejects anonymous locale reads", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/sites/demo/locales" });
+    expect(response.statusCode).toBe(401);
+  });
+});

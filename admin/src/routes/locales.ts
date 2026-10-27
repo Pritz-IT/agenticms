@@ -246,7 +246,7 @@ async function deleteLocaleForSite(app: FastifyInstance, siteId: string, id: str
 }
 
 export async function registerSiteLocalesRoutes(app: FastifyInstance) {
-  app.addHook("onRequest", app.requireRole("admin"));
+  app.addHook("onRequest", app.authenticate);
 
   app.get<{ Params: { siteKey: string } }>("/:siteKey/locales", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
@@ -257,20 +257,21 @@ export async function registerSiteLocalesRoutes(app: FastifyInstance) {
     return reply.send(locales);
   });
 
-  app.post<{ Params: { siteKey: string }; Body: CreateLocaleBody }>("/:siteKey/locales", async (request, reply) => {
+  app.post<{ Params: { siteKey: string }; Body: CreateLocaleBody }>("/:siteKey/locales", { preHandler: app.requireRole("admin") }, async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
     return createLocaleForSite(app, site.id, request.body, reply, request);
   });
 
   app.patch<{ Params: { siteKey: string; id: string }; Body: UpdateLocaleBody }>(
     "/:siteKey/locales/:id",
+    { preHandler: app.requireRole("admin") },
     async (request, reply) => {
       const site = await requireSite(app, request.params.siteKey);
       return updateLocaleForSite(app, site.id, request.params.id, request.body, reply, request);
     }
   );
 
-  app.delete<{ Params: { siteKey: string; id: string } }>("/:siteKey/locales/:id", async (request, reply) => {
+  app.delete<{ Params: { siteKey: string; id: string } }>("/:siteKey/locales/:id", { preHandler: app.requireRole("admin") }, async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
     const { id } = request.params;
 

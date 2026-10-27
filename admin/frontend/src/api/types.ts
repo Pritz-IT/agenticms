@@ -171,3 +171,40 @@ export interface Submission {
   notifiedAt: string | null;
   createdAt: string;
 }
+
+export interface BlogTag {
+  key: string;
+  names: Record<string, string>;
+  sortOrder: number;
+}
+
+export interface BlogCategory extends BlogTag {
+  pagePath: string;
+  defaultLayout: string;
+}
+
+export interface BlogTranslationInput {
+  title: string;
+  slug: string;
+  excerpt: string;
+  body: string;
+  coverImage: string | null;
+  metaTitle: string;
+  metaDescription: string;
+  status?: "draft" | "published";
+}
+
+export interface BlogPostInput {
+  key: string;
+  category: string;
+  tags: string[];
+  layout: string | null;
+  publishedAt?: string | null;
+  translations: Record<string, BlogTranslationInput>;
+}
+
+export interface BlogPost extends BlogPostInput {
+  publishedAt: string | null;
+  updatedAt: string;
+  translations: Record<string, BlogTranslationInput & { status: "draft" | "published"; updatedAt: string }>;
+}
