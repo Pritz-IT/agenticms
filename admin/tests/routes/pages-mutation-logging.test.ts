@@ -50,4 +50,21 @@ describe("pages mutation logging", () => {
     await app.inject({ method: "DELETE", url: "/api/pages/nope", headers: { authorization: auth } });
     expect(records.some((r) => r.op === "page.delete" && /NO-OP/.test(r.msg))).toBe(true);
   });
+
+  it("logs INFO entry and NO-OP for an unchanged update", async () => {
+    const page = await app.prisma.page.create({ data: { siteId, path: "/unchanged" } });
+    const res = await app.inject({ method: "PATCH", url: `/api/pages/${page.id}`, headers: { authorization: auth }, payload: { path: "/unchanged" } });
+    expect(res.statusCode).toBe(200);
+    const recs = records.filter((r) => r.op === "page.update" && r.level === 30);
+    expect(recs.some((r) => /requested/.test(r.msg))).toBe(true);
+    expect(recs.some((r) => /NO-OP/.test(r.msg))).toBe(true);
+  });
+
+  it("logs WARN and INFO NO-OP for rejected paths", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/pages", headers: { authorization: auth }, payload: { path: "/__page" } });
+    expect(res.statusCode).toBe(400);
+    const recs = records.filter((r) => r.op === "page.create");
+    expect(recs.some((r) => r.level === 40 && /rejected/.test(r.msg))).toBe(true);
+    expect(recs.some((r) => r.level === 30 && /NO-OP/.test(r.msg))).toBe(true);
+  });
 });

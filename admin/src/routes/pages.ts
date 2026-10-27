@@ -1,12 +1,41 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Prisma } from "@prisma/client";
 import { requireSite } from "../services/sites.js";
+import { assertNoRouteCollisions, collectSiteRoutes, lockSiteRoutes, RouteCollisionError } from "../services/blog/route-lock.js";
 
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 const DEFAULT_SITE_KEY = "demo";
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+export class InvalidPagePathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidPagePathError";
+  }
+}
+
+function handlePageMutationError(
+  error: unknown,
+  reply: FastifyReply,
+  request: FastifyRequest,
+  context: { op: string; siteId: string; pageId?: string }
+) {
+  if (error instanceof InvalidPagePathError || error instanceof RouteCollisionError || isUniqueConstraintError(error)) {
+    request.log.warn({ ...context, err: error }, `${context.op} rejected`);
+    request.log.info(context, `${context.op} NO-OP — rejected`);
+    if (error instanceof InvalidPagePathError) {
+      return reply.status(400).send({ error: error.message });
+    }
+    if (error instanceof RouteCollisionError) {
+      return reply.status(409).send({ error: error.message, conflicts: error.conflicts });
+    }
+    return reply.status(409).send({ error: "A page with this path already exists" });
+  }
+  request.log.error({ ...context, err: error }, `${context.op} failed`);
+  throw error;
 }
 
 /**
@@ -22,6 +51,9 @@ function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKn
 export function canonicalizePagePath(rawPath: string): string {
   const stripped = rawPath.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   if (stripped === "") return "/";
+  if (stripped.split("/").some((segment) => segment.startsWith("__"))) {
+    throw new InvalidPagePathError("Page path segments starting with __ are reserved");
+  }
   return "/" + stripped.replace(/\/{2,}/g, "/");
 }
 
@@ -63,29 +95,32 @@ export async function createPageForSite(
   request: FastifyRequest
 ) {
   const { path, layoutId, sortOrder = 0, isPublished = false } = body ?? {};
+  request.log.info({ op: "page.create", siteId, layoutId: layoutId ?? null }, "page.create requested");
 
-  if (!path || path.trim() === "") {
+  if (typeof path !== "string" || path.trim() === "") {
+    request.log.info({ op: "page.create", siteId }, "page.create NO-OP — path is required");
     return reply.status(400).send({ error: "path is required" });
   }
 
-  const canonicalPath = canonicalizePagePath(path);
-
-  request.log.info({ op: "page.create", siteId, path: canonicalPath, layoutId: layoutId ?? null }, "page.create requested");
-
-  const existing = await app.prisma.page.findUnique({ where: { siteId_path: { siteId, path: canonicalPath } } });
-  if (existing) {
-    return reply.status(409).send({ error: "A page with this path already exists" });
-  }
-
-  if (layoutId) {
-    const layout = await validateLayoutForSite(app, siteId, layoutId);
-    if (!layout) {
-      return reply.status(400).send({ error: "Layout not found for this site" });
-    }
-  }
-
   try {
+    const canonicalPath = canonicalizePagePath(path);
+
+    const existing = await app.prisma.page.findUnique({ where: { siteId_path: { siteId, path: canonicalPath } } });
+    if (existing) {
+      request.log.info({ op: "page.create", siteId, path: canonicalPath }, "page.create NO-OP — duplicate path");
+      return reply.status(409).send({ error: "A page with this path already exists" });
+    }
+
+    if (layoutId) {
+      const layout = await validateLayoutForSite(app, siteId, layoutId);
+      if (!layout) {
+        request.log.info({ op: "page.create", siteId, layoutId }, "page.create NO-OP — layout not found");
+        return reply.status(400).send({ error: "Layout not found for this site" });
+      }
+    }
+
     const page = await app.prisma.$transaction(async (tx) => {
+      await lockSiteRoutes(tx, siteId);
       const createdPage = await tx.page.create({
         data: { siteId, path: canonicalPath, layoutId, sortOrder, isPublished },
         include: { layout: true },
@@ -118,16 +153,14 @@ export async function createPageForSite(
         }
       }
 
+      assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
       return createdPage;
     });
 
     request.log.info({ op: "page.create", siteId, pageId: page.id }, "page.create done");
     return reply.status(201).send(page);
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return reply.status(409).send({ error: "A page with this path already exists" });
-    }
-    throw error;
+    return handlePageMutationError(error, reply, request, { op: "page.create", siteId });
   }
 }
 
@@ -140,49 +173,77 @@ export async function updatePageForSite(
   request: FastifyRequest
 ) {
   const { path, layoutId, sortOrder, isPublished } = body ?? {};
-
-  let canonicalPath: string | undefined;
-  if (path !== undefined) {
-    if (path.trim() === "") {
-      return reply.status(400).send({ error: "path cannot be empty" });
-    }
-    canonicalPath = canonicalizePagePath(path);
-  }
-
   request.log.info({ op: "page.update", siteId, pageId: id }, "page.update requested");
 
-  const existing = await findPageForSite(app, siteId, id);
-  if (!existing) {
-    request.log.info({ op: "page.update", siteId, pageId: id }, "page.update NO-OP — nothing matched");
-    return reply.status(404).send({ error: "Page not found" });
-  }
-
-  if (layoutId) {
-    const layout = await validateLayoutForSite(app, siteId, layoutId);
-    if (!layout) {
-      return reply.status(400).send({ error: "Layout not found for this site" });
-    }
-  }
-
   try {
-    const page = await app.prisma.page.update({
-      where: { id },
-      data: {
+    let canonicalPath: string | undefined;
+    if (path !== undefined) {
+      if (typeof path !== "string" || path.trim() === "") {
+        request.log.info({ op: "page.update", siteId, pageId: id }, "page.update NO-OP — invalid path");
+        return reply.status(400).send({ error: "path cannot be empty" });
+      }
+      canonicalPath = canonicalizePagePath(path);
+    }
+
+    const result = await app.prisma.$transaction(async (tx) => {
+      await lockSiteRoutes(tx, siteId);
+      const existing = await tx.page.findFirst({ where: { id, siteId } });
+      if (!existing) return { status: 404, error: "Page not found" };
+      if (layoutId && !await tx.layout.findFirst({ where: { id: layoutId, siteId } })) {
+        return { status: 400, error: "Layout not found for this site" };
+      }
+      if (canonicalPath === "/") {
+        const category = await tx.blogCategory.findFirst({ where: { siteId, pageId: id }, select: { key: true } });
+        if (category) throw new InvalidPagePathError(`Page used by category ${category.key} cannot be the root page`);
+      }
+      const data = {
         ...(canonicalPath !== undefined && { path: canonicalPath }),
         ...(layoutId !== undefined && { layoutId }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isPublished !== undefined && { isPublished }),
-      },
-      include: { layout: true },
+      };
+      const page = await tx.page.update({ where: { id }, data, include: { layout: true } });
+      assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
+      const changed = page.path !== existing.path || page.layoutId !== existing.layoutId
+        || page.sortOrder !== existing.sortOrder || page.isPublished !== existing.isPublished;
+      return { page, changed };
     });
 
-    request.log.info({ op: "page.update", siteId, pageId: id }, "page.update done");
-    return reply.send(page);
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      return reply.status(409).send({ error: "A page with this path already exists" });
+    if (result.error) {
+      request.log.info({ op: "page.update", siteId, pageId: id }, `page.update NO-OP — ${result.error}`);
+      return reply.status(result.status).send({ error: result.error });
     }
-    throw error;
+    request.log.info({ op: "page.update", siteId, pageId: id }, result.changed ? "page.update done" : "page.update NO-OP — unchanged");
+    return reply.send(result.page);
+  } catch (error) {
+    return handlePageMutationError(error, reply, request, { op: "page.update", siteId, pageId: id });
+  }
+}
+
+export async function deletePageForSite(
+  app: FastifyInstance,
+  siteId: string,
+  id: string,
+  reply: FastifyReply,
+  request: FastifyRequest
+) {
+  const context = { op: "page.delete", siteId, pageId: id };
+  request.log.info(context, "page.delete requested");
+  try {
+    const result = await app.prisma.$transaction(async (tx) => {
+      await lockSiteRoutes(tx, siteId);
+      const existing = await tx.page.findFirst({ where: { id, siteId } });
+      if (!existing) return { status: 404, body: { error: "Page not found" } };
+      const category = await tx.blogCategory.findFirst({ where: { siteId, pageId: id }, select: { key: true } });
+      if (category) return { status: 409, body: { error: `Page is used by category ${category.key}` } };
+      await tx.page.delete({ where: { id } });
+      return { status: 200, body: { ok: true } };
+    });
+    if (result.status === 409) request.log.warn(context, "page.delete rejected — page used by category");
+    request.log.info(context, result.status === 200 ? "page.delete done" : "page.delete NO-OP — refused or nothing matched");
+    return reply.status(result.status).send(result.body);
+  } catch (error) {
+    return handlePageMutationError(error, reply, request, context);
   }
 }
 
@@ -228,19 +289,7 @@ export async function registerSitePagesRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { siteKey: string; id: string } }>("/:siteKey/pages/:id", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
-    const { id } = request.params;
-
-    request.log.info({ op: "page.delete", siteId: site.id, pageId: id }, "page.delete requested");
-
-    const existing = await findPageForSite(app, site.id, id);
-    if (!existing) {
-      request.log.info({ op: "page.delete", siteId: site.id, pageId: id }, "page.delete NO-OP — nothing matched");
-      return reply.status(404).send({ error: "Page not found" });
-    }
-
-    await app.prisma.page.delete({ where: { id } });
-    request.log.info({ op: "page.delete", siteId: site.id, pageId: id }, "page.delete done");
-    return reply.send({ ok: true });
+    return deletePageForSite(app, site.id, request.params.id, reply, request);
   });
 }
 
@@ -295,19 +344,7 @@ export default async function pagesRoutes(app: FastifyInstance) {
 
   // DELETE /:id — delete page (content cascade-deletes via Prisma schema)
   app.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
-    const { id } = request.params;
-
     const siteId = await getDefaultSiteId(app);
-    request.log.info({ op: "page.delete", siteId, pageId: id }, "page.delete requested");
-
-    const existing = await findPageForSite(app, siteId, id);
-    if (!existing) {
-      request.log.info({ op: "page.delete", siteId, pageId: id }, "page.delete NO-OP — nothing matched");
-      return reply.status(404).send({ error: "Page not found" });
-    }
-
-    await app.prisma.page.delete({ where: { id } });
-    request.log.info({ op: "page.delete", siteId, pageId: id }, "page.delete done");
-    return reply.send({ ok: true });
+    return deletePageForSite(app, siteId, request.params.id, reply, request);
   });
 }

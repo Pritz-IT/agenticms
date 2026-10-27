@@ -2,9 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { FastifyInstance } from "fastify";
 import { createTestUser, getAccessToken } from "../helpers/auth.js";
-import { canonicalizePagePath } from "../../src/routes/pages.js";
+import { canonicalizePagePath, InvalidPagePathError } from "../../src/routes/pages.js";
+import { createBlogFixture } from "../helpers/blog.js";
+import { issueCliToken } from "../helpers/cli.js";
 
 describe("canonicalizePagePath", () => {
+  it("rejects reserved path segments", () => {
+    expect(() => canonicalizePagePath("/news/__page/2")).toThrow(InvalidPagePathError);
+    expect(() => canonicalizePagePath(" /a//__b/ ")).toThrow(InvalidPagePathError);
+    expect(canonicalizePagePath("/a/b__c/_d")).toBe("/a/b__c/_d");
+  });
   it("normalizes leading/trailing/duplicate slashes and maps blank input to root", () => {
     expect(canonicalizePagePath("/")).toBe("/");
     expect(canonicalizePagePath("")).toBe("/");
@@ -39,6 +46,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up in dependency order
+  await app.prisma.blogPost.deleteMany();
+  await app.prisma.blogCategory.deleteMany();
   await app.prisma.content.deleteMany();
   await app.prisma.navigation.deleteMany();
   await app.prisma.page.deleteMany();
@@ -61,6 +70,92 @@ beforeEach(async () => {
 
   const { user: editor } = await createTestUser(app, { role: "editor" });
   editorToken = getAccessToken(editor);
+});
+
+describe("blog page route rules", () => {
+  const endpoints = ["/api/pages", "/api/sites/demo/pages", "/api/sites/demo/cli/pages"];
+
+  async function headers(url: string) {
+    return { authorization: `Bearer ${url.includes("/cli/") ? await issueCliToken(app) : editorToken}` };
+  }
+
+  beforeEach(async () => {
+    await app.prisma.locale.createMany({ data: [
+      { siteId: defaultSiteId, code: "en", label: "English" },
+      { siteId: defaultSiteId, code: "de", label: "Deutsch" },
+    ] });
+  });
+
+  it.each(endpoints)("rejects reserved segments on create and update via %s", async (url) => {
+    const auth = await headers(url);
+    const created = await app.inject({ method: "POST", url, headers: auth, payload: { path: "/a/__b" } });
+    expect(created.statusCode).toBe(400);
+    const page = await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/a" } });
+    const updated = await app.inject({ method: "PATCH", url: `${url}/${page.id}`, headers: auth, payload: { path: "/news/__page/2" } });
+    expect(updated.statusCode).toBe(400);
+    expect(await app.prisma.page.findUnique({ where: { id: page.id } })).toMatchObject({ path: "/a" });
+  });
+
+  it.each(endpoints)("rolls back page creation colliding with a draft post via %s", async (url) => {
+    await createBlogFixture(app, defaultSiteId);
+    const res = await app.inject({ method: "POST", url, headers: await headers(url), payload: { path: "/news/x" } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      error: expect.any(String),
+      conflicts: expect.arrayContaining([{ url: "/news/x/", owners: ["page /news/x (en)", "post school-bus-routing (en)"] }]),
+    });
+    expect(await app.prisma.page.findUnique({ where: { siteId_path: { siteId: defaultSiteId, path: "/news/x" } } })).toBeNull();
+  });
+
+  it.each(endpoints)("refuses deletion of a category page via %s", async (url) => {
+    const { page } = await createBlogFixture(app, defaultSiteId);
+    const res = await app.inject({ method: "DELETE", url: `${url}/${page.id}`, headers: await headers(url) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("news");
+    expect(res.json().error).not.toContain(page.id);
+    expect(await app.prisma.page.findUnique({ where: { id: page.id } })).not.toBeNull();
+  });
+
+  it("rolls back all page update fields on a collision", async () => {
+    await createBlogFixture(app, defaultSiteId);
+    const page = await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/old" } });
+    const res = await app.inject({ method: "PATCH", url: `/api/sites/demo/pages/${page.id}`, headers: await headers("/api/sites/demo/pages"), payload: { path: "/news/x", isPublished: true } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().conflicts).toEqual(expect.arrayContaining([
+      { url: "/news/x/", owners: ["page /news/x (en)", "post school-bus-routing (en)"] },
+    ]));
+    expect(await app.prisma.page.findUnique({ where: { id: page.id } })).toMatchObject({ path: "/old", isPublished: false });
+  });
+
+  it("checks post routes after a category page moves and rejects the root", async () => {
+    const { page } = await createBlogFixture(app, defaultSiteId);
+    await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/moved/x" } });
+    const url = `/api/sites/demo/pages/${page.id}`;
+    const auth = await headers(url);
+    const collision = await app.inject({ method: "PUT", url, headers: auth, payload: { path: "/moved" } });
+    expect(collision.statusCode).toBe(409);
+    const root = await app.inject({ method: "PATCH", url, headers: auth, payload: { path: "/" } });
+    expect(root.statusCode).toBe(400);
+    expect(root.json().error).toContain("news");
+    expect(await app.prisma.page.findUnique({ where: { id: page.id } })).toMatchObject({ path: "/news" });
+  });
+
+  it("rejects collisions between page routes across locale prefixes", async () => {
+    await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/about" } });
+    const res = await app.inject({ method: "POST", url: "/api/sites/demo/pages", headers: await headers("/api/sites/demo/pages"), payload: { path: "/de/about" } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().conflicts).toEqual([{ url: "/de/about/", owners: ["page /about (de)", "page /de/about (en)"] }]);
+  });
+
+  it("allows only one concurrent create when locale routes collide", async () => {
+    const url = "/api/sites/demo/pages";
+    const auth = await headers(url);
+    const responses = await Promise.all(["/about", "/de/about"].map((path) =>
+      app.inject({ method: "POST", url, headers: auth, payload: { path } })
+    ));
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    expect(await app.prisma.page.count({ where: { siteId: defaultSiteId } })).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

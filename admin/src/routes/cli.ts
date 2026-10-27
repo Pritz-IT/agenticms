@@ -26,7 +26,7 @@ import { GlobalAssetValidationError, syncGlobalAssetBatch } from "../services/gl
 import { cliInstallerScriptWithEtag, getCliArchive } from "../services/cli-installer.js";
 import {
   createPageForSite,
-  findPageForSite,
+  deletePageForSite,
   updatePageForSite,
   type CreatePageBody,
   type UpdatePageBody,
@@ -631,11 +631,7 @@ export async function registerSiteCliRoutes(app: FastifyInstance) {
     { preHandler: app.authenticateCli("pages:write") },
     async (request, reply) => {
       const site = await requireSite(app, request.params.siteKey);
-      const existing = await findPageForSite(app, site.id, request.params.id);
-      if (!existing) return reply.status(404).send({ error: "Page not found" });
-
-      await app.prisma.page.delete({ where: { id: request.params.id } });
-      return reply.send({ ok: true });
+      return deletePageForSite(app, site.id, request.params.id, reply, request);
     }
   );
 
