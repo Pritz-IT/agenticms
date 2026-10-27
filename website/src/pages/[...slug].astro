@@ -1,8 +1,7 @@
 ---
 import { getConfig, getDefaultLocale } from "../lib/config";
-import { pageSlug, pageUrlPath } from "../lib/routes";
 import { buildStaticPaths, type StaticPath } from "../lib/static-paths";
-import { pageTitleSuffix } from "../lib/blog";
+import { routeMeta } from "../lib/route-meta";
 import type { Navigation } from "../lib/site-config-types";
 
 type Props = StaticPath["props"];
@@ -38,23 +37,12 @@ if (layoutFilePath) {
   }
 }
 
-const metaTitle = props.kind === "post"
-  ? props.post.metaTitle ?? props.post.title
-  : (content["_meta.title"] ?? config.settings?.name ?? "") + pageTitleSuffix(locale, props.pageNumber);
-const metaDescription = props.kind === "post"
-  ? props.post.metaDescription ?? props.post.excerpt
-  : content["_meta.description"] ?? "";
 const favicon = content["_meta.favicon"];
-
 const base = (config.settings?.siteUrl ?? "").replace(/\/+$/, "");
-const rawImg = props.kind === "post" ? props.post.coverImage : content["_meta.image"] ?? "";
-const ogImage = rawImg ? (/^https?:\/\//i.test(rawImg) ? rawImg : base + rawImg) : "";
-const canonical = props.kind === "post"
-  ? (base ? base + props.post.url : "")
-  : props.pageNumber >= 2
-    ? (base ? base + pageUrlPath(pageSlug(props.page.path, locale, getDefaultLocale()), props.pageNumber) : "")
-    : content["_meta.canonical"] || (base ? base + Astro.url.pathname : "");
 const siteName = config.settings?.name ?? "";
+const { metaTitle, metaDescription, ogImage, canonical } = routeMeta(props, {
+  base, siteName, defaultLocale: getDefaultLocale(), pathname: Astro.url.pathname,
+});
 
 const isHomepage = props.kind === "page" && props.pageNumber === 1 && props.page.path.replace(/^\//, "") === "";
 const organizationJsonLd =
