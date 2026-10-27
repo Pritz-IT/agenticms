@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import pino from "pino";
 import type { FastifyInstance } from "fastify";
@@ -10,6 +11,7 @@ import { sha256 } from "../../src/services/cli-auth.js";
 import * as posts from "../../src/services/blog/posts.js";
 import * as mediaService from "../../src/services/blog/post-media.js";
 import { createTestUser } from "../helpers/auth.js";
+import { buildPushPayload } from "../../../cli/src/posts.ts";
 
 let app: FastifyInstance;
 let site: Site;
@@ -157,6 +159,27 @@ describe("CLI posts", () => {
     expect(post.translations.de.body).toContain(`src="${url}"`);
     expect(post.translations.en.coverImage).toBe(url);
     expect(await fs.readdir(path.join(config.POST_MEDIA_DIR, "demo", "routing"))).toHaveLength(1);
+  });
+  it("accepts the real CLI payload with collision-safe media refs", async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), "agenticms-cli-posts-"));
+    const body = `---\nkey: routing\nlocale: LOCALE\ncategory: news\ntags: [transport]\ntitle: Routing\nslug: routing-LOCALE\ncover: ./a&b.png\n---\n![Cover](./a&b.png) ![Literal](./media-1.png) ![Shared](./shared.png)`;
+    try {
+      await Promise.all([
+        fs.writeFile(path.join(root, "routing.de.md"), body.replaceAll("LOCALE", "de")),
+        fs.writeFile(path.join(root, "routing.en.md"), body.replaceAll("LOCALE", "en")),
+        fs.writeFile(path.join(root, "a&b.png"), png),
+        fs.writeFile(path.join(root, "media-1.png"), Buffer.concat([png, Buffer.from("literal")])),
+        fs.writeFile(path.join(root, "shared.png"), Buffer.concat([png, Buffer.from("shared")])),
+      ]);
+      const payload = await buildPushPayload([path.join(root, "routing.de.md"), path.join(root, "routing.en.md")], false);
+      const response = await app.inject({ method: "POST", url: "/api/sites/demo/cli/posts/push", headers: { authorization: `Bearer ${token}` }, payload });
+      expect(response.statusCode).toBe(200);
+      const post = await getPost();
+      for (const translation of Object.values(post.translations)) expect(translation.body).toMatch(/src="\/media\/routing\//);
+      expect(await fs.readdir(path.join(config.POST_MEDIA_DIR, "demo", "routing"))).toHaveLength(3);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
   it("stores a shared media ref separately for each post key", async () => {
     const store = vi.spyOn(mediaService, "storePostMedia");

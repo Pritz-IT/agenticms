@@ -57,6 +57,7 @@ describe("post command", () => {
     const html = markdownToHtml("![One](./one.png) \n![Two](./two.png)");
 
     expect(html).toBe('<figure><img src="./one.png" alt="One"></figure><figure><img src="./two.png" alt="Two"></figure>');
+    expect(markdownToHtml("![One](./one.png)  \n![Two](./two.png)")).toBe('<figure><img src="./one.png" alt="One"></figure><figure><img src="./two.png" alt="Two"></figure>');
     expect(markdownToHtml("Before ![Inline](./inline.png) after")).toBe('<p>Before <img src="./inline.png" alt="Inline"> after</p>\n');
   });
 
@@ -147,12 +148,12 @@ describe("post command", () => {
       title: "School bus routing: a practical guide",
       slug: "school-bus-routing",
       excerpt: "A short guide.",
-      cover: "media:1",
+      cover: "agenticms-media-1",
     });
     expect(body.media).toHaveLength(1);
-    expect(body.media[0]).toMatchObject({ ref: "media:1", name: "image.png" });
-    expect(body.files[0].html).toContain('src="media:1"');
-    expect(body.files[0].cover).toBe("media:1");
+    expect(body.media[0]).toMatchObject({ ref: "agenticms-media-1", name: "image.png" });
+    expect(body.files[0].html).toContain('src="agenticms-media-1"');
+    expect(body.files[0].cover).toBe("agenticms-media-1");
   });
 
   it("gives different same-named images distinct refs across pushed files", async () => {
@@ -179,35 +180,31 @@ describe("post command", () => {
       await pushPosts("http://localhost:3001", "/project", "demo", [join(first, "post.md"), join(first, "second.md"), join(second, "post.md")], false);
       const body = JSON.parse(requestJson.mock.calls[0][2].body);
       expect(body.media).toHaveLength(2);
-      expect(body.media.map((item: { ref: string }) => item.ref)).toEqual(["media:1", "media:2"]);
-      expect(body.files[0]).toMatchObject({ cover: "media:1" });
-      expect(body.files[0].html).toContain('src="media:1"');
-      expect(body.files[1]).toMatchObject({ cover: "media:1" });
-      expect(body.files[1].html).toContain('src="media:1"');
-      expect(body.files[2]).toMatchObject({ cover: "media:2" });
-      expect(body.files[2].html).toContain('src="media:2"');
+      expect(body.media.map((item: { ref: string }) => item.ref)).toEqual(["agenticms-media-1", "agenticms-media-2"]);
+      expect(body.files[0]).toMatchObject({ cover: "agenticms-media-1" });
+      expect(body.files[0].html).toContain('src="agenticms-media-1"');
+      expect(body.files[1]).toMatchObject({ cover: "agenticms-media-1" });
+      expect(body.files[1].html).toContain('src="agenticms-media-1"');
+      expect(body.files[2]).toMatchObject({ cover: "agenticms-media-2" });
+      expect(body.files[2].html).toContain('src="agenticms-media-2"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("renders resolved refs directly without escaped-name or replacement collisions", async () => {
-    const { pushPosts } = await import("../src/posts.js");
+  it("refuses a generated ref colliding with a Markdown href", async () => {
+    const { buildPushPayload } = await import("../src/posts.js");
     const root = await mkdtemp(join(tmpdir(), "agenticms-post-refs-"));
-    const source = `---\nkey: refs\nlocale: de\ncategory: playbooks\ntitle: refs\nslug: refs\ncover: ./a&b.png\n---\n![Escaped](./a&b.png) ![Collision](media:1) ![Literal](./media-1.png) ![Second](./second.png)`;
+    const source = `---\nkey: refs\nlocale: de\ncategory: playbooks\ntitle: refs\nslug: refs\ncover: ./a&b.png\n---\n![Escaped](./a&b.png) [Collision](agenticms-media-1) ![Literal](./media-1.png) ![Second](./second.png)`;
     try {
       await Promise.all([
         writeFile(join(root, "post.md"), source),
         writeFile(join(root, "a&b.png"), "first"),
-        writeFile(join(root, "media:1"), "second"),
+        writeFile(join(root, "agenticms-media-1"), "second"),
         writeFile(join(root, "media-1.png"), "third"),
         writeFile(join(root, "second.png"), "fourth"),
       ]);
-      await pushPosts("http://localhost:3001", "/project", "demo", [join(root, "post.md")], false);
-      const body = JSON.parse(requestJson.mock.calls[0][2].body);
-      expect(body.media.map((item: { ref: string }) => item.ref)).toEqual(["media:2", "media:3", "media:4", "media:5"]);
-      expect(body.files[0].cover).toBe("media:2");
-      expect(body.files[0].html).toBe('<figure><img src="media:2" alt="Escaped"></figure><figure><img src="media:3" alt="Collision"></figure><figure><img src="media:4" alt="Literal"></figure><figure><img src="media:5" alt="Second"></figure>');
+      await expect(buildPushPayload([join(root, "post.md")], false)).rejects.toThrow("Generated media ref collides with Markdown href: agenticms-media-1");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -108,7 +108,7 @@ export function markdownToHtml(markdown: string, mediaRefs = new Map<string, str
     return imageHtml(mediaRefs.get(href) ?? href, title, text, true);
   };
   renderer.paragraph = ({ tokens }) => {
-    if (tokens.every((token) => token.type === "image" || (token.type === "text" && !token.raw.trim()))) {
+    if (tokens.every((token) => token.type === "image" || token.type === "br" || (token.type === "text" && !token.raw.trim()))) {
       return tokens.filter((token) => token.type === "image").map((token) => Parser.parseInline([token], { renderer })).join("");
     }
     const inlineRenderer = new marked.Renderer();
@@ -125,6 +125,14 @@ function imageRefs(markdown: string): string[] {
   const refs = new Set<string>();
   marked.walkTokens(marked.lexer(markdown, { gfm: true }), (token: Token) => {
     if (token.type === "image") refs.add(token.href);
+  });
+  return [...refs];
+}
+
+function markdownHrefs(markdown: string): string[] {
+  const refs = new Set<string>();
+  marked.walkTokens(marked.lexer(markdown, { gfm: true }), (token: Token) => {
+    if ((token.type === "image" || token.type === "link") && token.href) refs.add(token.href);
   });
   return [...refs];
 }
@@ -163,6 +171,39 @@ export async function collectMedia(mdFile: string, refs: string[]): Promise<Arra
   return (await collectMediaFiles(mdFile, refs)).map(({ ref, name, base64 }) => ({ ref, name, base64 }));
 }
 
+export async function buildPushPayload(filePaths: string[], draft: boolean): Promise<{ draft: boolean; files: PushFile[]; media: Array<{ ref: string; name: string; base64: string }> }> {
+  const parsedFiles = await Promise.all(filePaths.map(async (filePath) => ({ filePath, ...parsePostFile(filePath, await readFile(filePath, "utf8")) })));
+  const files: PushFile[] = [];
+  const media = new Map<string, { ref: string; name: string; base64: string }>();
+  const reservedRefs = new Set(parsedFiles.flatMap(({ meta, markdown }) => [...markdownHrefs(markdown), ...(meta.cover ? [meta.cover] : [])]));
+  let nextRef = 1;
+  const createRef = (): string => {
+    const ref = `agenticms-media-${nextRef++}`;
+    if (reservedRefs.has(ref)) throw new Error(`Generated media ref collides with Markdown href: ${ref}`);
+    return ref;
+  };
+  for (const { filePath, meta, markdown } of parsedFiles) {
+    const refs = [...imageRefs(markdown), ...(meta.cover ? [meta.cover] : [])];
+    const localMedia = await resolveMediaRefs(filePath, refs);
+    const mediaRefs = new Map<string, string>();
+    for (const [ref, item] of localMedia) {
+      let upload = media.get(item.realPath);
+      if (!upload) {
+        upload = { ref: createRef(), name: item.name, base64: item.base64 };
+        media.set(item.realPath, upload);
+      }
+      mediaRefs.set(ref, upload.ref);
+    }
+    files.push({
+      source: filePath,
+      ...meta,
+      cover: meta.cover ? mediaRefs.get(meta.cover) ?? meta.cover : null,
+      html: markdownToHtml(markdown, mediaRefs),
+    });
+  }
+  return { draft, files, media: [...media.values()] };
+}
+
 export function parsePostPushArgs(args: string[]): { files: string[]; draft: boolean } {
   const files: string[] = [];
   let draft = false;
@@ -194,34 +235,7 @@ export async function pushPosts(
   filePaths: string[],
   draft: boolean
 ): Promise<void> {
-  const parsedFiles = await Promise.all(filePaths.map(async (filePath) => ({ filePath, ...parsePostFile(filePath, await readFile(filePath, "utf8")) })));
-  const files: PushFile[] = [];
-  const media = new Map<string, { ref: string; name: string; base64: string }>();
-  const reservedRefs = new Set(parsedFiles.flatMap(({ meta, markdown }) => [...imageRefs(markdown), ...(meta.cover ? [meta.cover] : [])]));
-  let nextRef = 1;
-  const createRef = (): string => {
-    while (reservedRefs.has(`media:${nextRef}`)) nextRef += 1;
-    return `media:${nextRef++}`;
-  };
-  for (const { filePath, meta, markdown } of parsedFiles) {
-    const refs = [...imageRefs(markdown), ...(meta.cover ? [meta.cover] : [])];
-    const localMedia = await resolveMediaRefs(filePath, refs);
-    const mediaRefs = new Map<string, string>();
-    for (const [ref, item] of localMedia) {
-      let upload = media.get(item.realPath);
-      if (!upload) {
-        upload = { ref: createRef(), name: item.name, base64: item.base64 };
-        media.set(item.realPath, upload);
-      }
-      mediaRefs.set(ref, upload.ref);
-    }
-    files.push({
-      source: filePath,
-      ...meta,
-      cover: meta.cover ? mediaRefs.get(meta.cover) ?? meta.cover : null,
-      html: markdownToHtml(markdown, mediaRefs),
-    });
-  }
+  const payload = await buildPushPayload(filePaths, draft);
 
   const { adminUrl, credential } = await loadCredential(adminUrlArg);
   const selection = await resolveSiteSelection(projectRoot, siteArg);
@@ -229,7 +243,7 @@ export async function pushPosts(
     const result = await requestJson<PushResponse>(
       adminUrl,
       `/api/sites/${selection.siteKey}/cli/posts/push`,
-      { method: "POST", body: JSON.stringify({ draft, files, media: [...media.values()] }) },
+      { method: "POST", body: JSON.stringify(payload) },
       credential
     );
     for (const post of result.posts) console.log(`${post.key}\t${post.locale}\t${post.action}`);
