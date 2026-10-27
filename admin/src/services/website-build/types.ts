@@ -1,5 +1,6 @@
 // Shape matching what was previously served by GET /api/config and consumed
 // by the (old) Website container. Now built and consumed in-process.
+import type { BlogPostView } from "../blog/views.js";
 
 export interface SiteSettings {
   id: string;
@@ -70,6 +71,9 @@ export interface AssetRef {
 }
 
 export interface SiteConfig {
+  buildTarget: "staging" | "production";
+  posts: (BlogPostView & { layoutFilePath: string })[];
+  blogLists: Record<string, Record<string, Record<string, { postKeys: string[]; pageSize: number | null }>>>;
   settings: SiteSettings | null;
   locales: Locale[];
   layouts: Layout[];

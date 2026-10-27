@@ -1,6 +1,6 @@
 import { accessSync, existsSync } from "node:fs";
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { basename, join, resolve, sep } from "node:path";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import type { PrismaClient } from "@prisma/client";
 
@@ -10,6 +10,7 @@ import { buildSiteConfig } from "./site-config.js";
 import { swapSymlink } from "./symlink.js";
 import { cleanupOldBuilds } from "./cleanup.js";
 import type { BuildResult, SiteConfig } from "./types.js";
+import { postMediaDiskPath, referencedMediaUrls } from "../blog/post-media.js";
 
 const DEFAULT_SITE_KEY = "demo";
 const HTPASSWD_USERNAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -59,8 +60,65 @@ function validateConfig(siteConfig: SiteConfig, siteKey: string): void {
     try {
       accessSync(layoutFile);
     } catch (err) {
+      const post = siteConfig.posts.find((post) => post.layoutFilePath === layout.filePath);
+      if (post) throw new Error(`Post ${post.key}: layout file is missing: ${layout.filePath}`, { cause: err });
       log.warn({ err, layoutFile }, "build.validateConfig — layout file not found");
     }
+  }
+}
+
+export async function copyPostMedia(
+  siteKey: string,
+  posts: SiteConfig["posts"],
+  targetDir: string,
+  target: SiteConfig["buildTarget"] = "production",
+): Promise<number> {
+  const context = { op: "blog.build.media", siteKey, target, posts: new Set(posts.map(({ key }) => key)).size };
+  log.info(context, "blog.build.media requested");
+  try {
+    const files = new Map<string, string>();
+    for (const post of posts) {
+      for (const url of referencedMediaUrls(post.body, post.coverImage)) {
+        const source = postMediaDiskPath(siteKey, url);
+        if (!source) throw new Error(`Post ${post.key}: invalid media URL ${url}`);
+        try {
+          if (!(await stat(source)).isFile()) throw new Error("Not a file");
+        } catch (err) {
+          throw new Error(`Post ${post.key}: missing or unreadable media ${url}`, { cause: err });
+        }
+        files.set(source, join(targetDir, url.slice(1)));
+      }
+    }
+
+    // Replace dist's media subtree so only this target's post media can be served.
+    await rm(join(targetDir, "media"), { recursive: true, force: true });
+    const copied = new Set<string>();
+    for (const [source, destination] of files) {
+      await mkdir(dirname(destination), { recursive: true });
+      await cp(source, destination);
+      copied.add(source);
+    }
+    if (target === "staging") {
+      for (const key of new Set(posts.map(({ key }) => key))) {
+        const mediaPath = postMediaDiskPath(siteKey, `/media/${key}/placeholder`);
+        if (!mediaPath) throw new Error(`Post ${key}: invalid media directory`);
+        const sourceDir = dirname(mediaPath);
+        if (!existsSync(sourceDir)) continue;
+        await cp(sourceDir, join(targetDir, "media", key), {
+          recursive: true,
+          filter: async (source) => {
+            if ((await stat(source)).isFile()) copied.add(resolve(source));
+            return true;
+          },
+        });
+      }
+    }
+    log.info({ ...context, mediaFiles: copied.size }, copied.size ? "blog.build.media copied" : "blog.build.media NO-OP — no media to copy");
+    return copied.size;
+  } catch (err) {
+    log.error({ ...context, err }, "blog.build.media failed");
+    log.info(context, "blog.build.media failed to complete");
+    throw err;
   }
 }
 
@@ -186,9 +244,11 @@ async function runBuildLocked(
   siteKey: string,
   target: string,
 ): Promise<BuildResult> {
+  log.info({ op: "blog.build", target, siteKey, buildId }, "blog.build requested");
   try {
+    if (target !== "staging" && target !== "production") throw new Error(`Invalid build target: ${target}`);
     // 1. Resolve config from DB
-    const siteConfig = await buildSiteConfig(prisma, siteKey);
+    const siteConfig = await buildSiteConfig(prisma, siteKey, target);
     validateConfig(siteConfig, siteKey);
     const stagingHtpasswdContent = target === "staging"
       ? serializeStagingHtpasswd(siteConfig)
@@ -209,6 +269,7 @@ async function runBuildLocked(
     await cp(join(config.ASTRO_PROJECT_DIR, "dist"), versionedDir, {
       recursive: true,
     });
+    const mediaFiles = await copyPostMedia(siteKey, siteConfig.posts, versionedDir, target);
 
     // 5. Swap symlink and prune older versions
     await swapSymlink(siteKey, target, versionedDir);
@@ -226,10 +287,12 @@ async function runBuildLocked(
       );
     }
 
+    log.info({ op: "blog.build", target, posts: new Set(siteConfig.posts.map(({ key }) => key)).size, translations: siteConfig.posts.length, mediaFiles }, "blog.build completed");
     return { success: true, outputPath: versionedDir };
   } catch (err: unknown) {
     const errorLog = err instanceof Error ? err.message : String(err);
     log.error({ err, buildId, target }, "build.runBuild failed");
+    log.info({ op: "blog.build", target, siteKey, buildId }, "blog.build failed to complete");
     return { success: false, errorLog };
   }
 }

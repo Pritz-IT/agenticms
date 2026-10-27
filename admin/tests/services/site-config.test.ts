@@ -34,9 +34,12 @@ describe("buildSiteConfig", () => {
       ],
     });
 
-    const config = await buildSiteConfig(app.prisma, "agenticms");
+    const config = await buildSiteConfig(app.prisma, "agenticms", "production");
 
     expect(config.settings?.id).toBe(agenticms.id);
+    expect(config.buildTarget).toBe("production");
+    expect(config.posts).toEqual([]);
+    expect(config.blogLists).toEqual({});
     expect(config.assets).toEqual([
       expect.objectContaining({ filePath: "/assets/agenticms/logo.png" }),
     ]);
