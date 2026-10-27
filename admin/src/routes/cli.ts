@@ -33,6 +33,9 @@ import {
   type UpdatePageBody,
 } from "./pages.js";
 
+import { listPosts } from "../services/blog/posts.js";
+import { PostPushError, pushPosts } from "../services/blog/push.js";
+
 const DEFAULT_SITE_KEY = "demo";
 const TEXT_LAYOUT_EXTENSIONS = new Set([".tsx", ".ts"]);
 
@@ -586,6 +589,25 @@ export default async function cliRoutes(app: FastifyInstance) {
 }
 
 export async function registerSiteCliRoutes(app: FastifyInstance) {
+  app.post<{ Params: SiteParams }>("/:siteKey/cli/posts/push", {
+    preHandler: app.authenticateCli("posts:write"), bodyLimit: 40 * 1024 * 1024,
+  }, async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    try {
+      return reply.send(await pushPosts(app.prisma, site, request.body, request.log));
+    } catch (error) {
+      if (error instanceof PostPushError) return reply.status(422).send({ issues: error.issues });
+      throw error;
+    }
+  });
+
+  app.get<{ Params: SiteParams }>("/:siteKey/cli/posts", { preHandler: app.authenticateCli("status:read") }, async (request) => {
+    const site = await requireSite(app, request.params.siteKey);
+    return (await listPosts(app.prisma, site)).map(({ key, category, translations }) => ({
+      key, category, locales: Object.entries(translations).map(([locale, { status }]) => ({ locale, status })),
+    }));
+  });
+
   app.get<{ Params: SiteParams }>("/:siteKey/cli/status", { preHandler: app.authenticateCli("status:read") }, async (request, reply) => {
     return sendCliStatus(app, request.params.siteKey, request.user, reply);
   });

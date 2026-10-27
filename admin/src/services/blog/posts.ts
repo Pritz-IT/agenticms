@@ -115,7 +115,7 @@ export async function listPosts(prisma: Prisma.TransactionClient, site: PostSite
   return posts.map(serialize);
 }
 
-async function validateInput(tx: Prisma.TransactionClient, site: PostSite, input: unknown, existing: PostRecord | null) {
+export async function validatePostInput(tx: Prisma.TransactionClient, site: PostSite, input: unknown, existing: PostRecord | null = null) {
   if (!isRecord(input)) throw new PostError(400, "Body must be an object");
   if (Object.keys(input).some((field) => !["key", "category", "tags", "layout", "publishedAt", "translations"].includes(field))) throw new PostError(400, "Unknown post field");
   if (typeof input.key !== "string" || !keyPattern.test(input.key)) throw new PostError(400, "key must contain lowercase letters, digits and single hyphens");
@@ -176,7 +176,7 @@ export async function savePostInTx(tx: Prisma.TransactionClient, site: PostSite,
     const existing = await tx.blogPost.findUnique({ where, include: postInclude });
     if (mode === "create" && existing) throw new PostError(409, "Post key is already in use");
     if (mode === "update" && !existing) throw new PostError(404, "Post not found");
-    const data = await validateInput(tx, site, input, existing);
+    const data = await validatePostInput(tx, site, input, existing);
     const changedTranslations = data.translations.filter((entry) => {
       const old = existing?.translations.find((value) => value.locale === entry.locale);
       return !old || Object.entries(entry).some(([field, value]) => old[field as keyof typeof entry] !== value);

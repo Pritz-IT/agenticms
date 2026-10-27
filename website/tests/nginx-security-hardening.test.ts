@@ -142,7 +142,7 @@ assertEveryBlockIncludes("location ~ ^/api/auth/", 3, [
 ]);
 
 assertEveryBlockIncludes(
-  "location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$",
+  "location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets|sites/[^/]+/cli/posts/push)$",
   3,
   [
     "limit_req zone=cli burst=3 nodelay;",

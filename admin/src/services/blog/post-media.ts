@@ -30,17 +30,21 @@ export function postMediaDiskPath(siteKey: string, mediaUrl: string): string | n
   return diskPath.startsWith(siteDir + path.sep) ? diskPath : null;
 }
 
+export function postMediaUrl(postKey: string, fileName: string, buf: Buffer): string {
+  const type = detectImageType(buf);
+  if (!type) throw new PostMediaError(415, "Unsupported image type; use PNG, JPEG, WebP or GIF");
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(postKey)) throw new PostMediaError(400, "Invalid post key");
+  const baseName = path.posix.basename(fileName.replaceAll("\\", "/"));
+  const stem = path.parse(baseName).name.toLowerCase().replace(/[^a-z0-9.-]/g, "-").slice(0, 60) || "image";
+  return `/media/${postKey}/${createHash("sha256").update(buf).digest("hex").slice(0, 12)}-${stem}.${type}`;
+}
+
 export async function storePostMedia(siteKey: string, postKey: string, fileName: string, buf: Buffer, logger: FastifyBaseLogger = log): Promise<string> {
   const context = { op: "blog.media.store", siteKey, postKey, bytes: buf.length };
   logger.info(context, "blog.media.store requested");
   try {
-    const type = detectImageType(buf);
-    if (!type) throw new PostMediaError(415, "Unsupported image type; use PNG, JPEG, WebP or GIF");
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(postKey)) throw new PostMediaError(400, "Invalid post key");
-    const baseName = path.posix.basename(fileName.replaceAll("\\", "/"));
-    const stem = path.parse(baseName).name.toLowerCase().replace(/[^a-z0-9.-]/g, "-").slice(0, 60) || "image";
+    const url = postMediaUrl(postKey, fileName, buf);
     const hash = createHash("sha256").update(buf).digest("hex");
-    const url = `/media/${postKey}/${hash.slice(0, 12)}-${stem}.${type}`;
     const diskPath = postMediaDiskPath(siteKey, url);
     if (!diskPath) throw new PostMediaError(400, "Invalid post media path");
     await fs.mkdir(path.dirname(diskPath), { recursive: true });

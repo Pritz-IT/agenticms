@@ -69,7 +69,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets|sites/[^/]+/cli/posts/push)$ {
             limit_req zone=cli burst=3 nodelay;
             limit_conn perip 8;
             client_max_body_size 50m;
@@ -145,7 +145,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets|sites/[^/]+/cli/posts/push)$ {
             limit_req zone=cli burst=3 nodelay;
             limit_conn perip 8;
             client_max_body_size 50m;
@@ -254,7 +254,7 @@ __SITE_HOST_MAP__
             proxy_read_timeout    30s;
         }
 
-        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets)$ {
+        location ~ ^/api/(?:cli/sync/(?:assets|global-assets)|sites/[^/]+/cli/sync/assets|sites/[^/]+/cli/posts/push)$ {
             limit_req zone=cli burst=3 nodelay;
             limit_conn perip 8;
             client_max_body_size 50m;
