@@ -78,18 +78,18 @@ beforeEach(async () => {
 async function seedMedia() {
   const dir = join(config.POST_MEDIA_DIR, "demo", postKey);
   await mkdir(dir, { recursive: true });
-  for (const file of ["cover.png", "body.png", "draft.png", "unused.png"]) await writeFile(join(dir, file), file);
+  for (const file of ["012345abcdef-cover.png", "012345abcdef-body.png", "012345abcdef-draft.png", "012345abcdef-unused.png"]) await writeFile(join(dir, file), file);
   await mkdir(join(dir, "nested"));
-  await writeFile(join(dir, "nested", "unused.png"), "nested");
+  await writeFile(join(dir, "nested", "012345abcdef-unused.png"), "nested");
   await mkdir(join(config.POST_MEDIA_DIR, "demo", "excluded"), { recursive: true });
   await writeFile(join(config.POST_MEDIA_DIR, "demo", "excluded", "private.png"), "private");
   await mkdir(join(config.ASTRO_PROJECT_DIR, "dist", "media", postKey), { recursive: true });
-  await writeFile(join(config.ASTRO_PROJECT_DIR, "dist", "media", postKey, "body.png"), "stale");
+  await writeFile(join(config.ASTRO_PROJECT_DIR, "dist", "media", postKey, "012345abcdef-body.png"), "stale");
   await writeFile(join(config.ASTRO_PROJECT_DIR, "dist", "media", "private.png"), "private");
   await app.prisma.blogPostTranslation.update({ where: { postId_locale: { postId: fixture.post.id, locale: "de" } }, data: {
-    coverImage: mediaUrl("cover.png"), body: `<img src="${mediaUrl("body.png")}"><img src="${mediaUrl("cover.png")}">`,
+    coverImage: mediaUrl("012345abcdef-cover.png"), body: `<img src="${mediaUrl("012345abcdef-body.png")}"><img src="${mediaUrl("012345abcdef-cover.png")}">`,
   } });
-  await app.prisma.blogPostTranslation.update({ where: { postId_locale: { postId: fixture.post.id, locale: "en" } }, data: { coverImage: mediaUrl("draft.png") } });
+  await app.prisma.blogPostTranslation.update({ where: { postId_locale: { postId: fixture.post.id, locale: "en" } }, data: { coverImage: mediaUrl("012345abcdef-draft.png") } });
 }
 
 describe("blog build config", () => {
@@ -154,20 +154,35 @@ describe("post media build output", () => {
     const siteConfig = await buildSiteConfig(app.prisma, "demo", target);
     const output = join(tempDir, "output");
     const count = await copyPostMedia("demo", siteConfig.posts, output, target);
-    const files = target === "production" ? ["body.png", "cover.png"] : ["body.png", "cover.png", "draft.png", "nested", "unused.png"];
-    expect(await readdir(join(output, "media", postKey))).toEqual(files);
+    const files = target === "production" ? ["012345abcdef-body.png", "012345abcdef-cover.png"] : ["012345abcdef-body.png", "012345abcdef-cover.png", "012345abcdef-draft.png", "nested", "012345abcdef-unused.png"];
+    expect(await readdir(join(output, "media", postKey))).toEqual([...files].sort());
     expect(count).toBe(files.length);
-    if (target === "staging") await expect(readFile(join(output, "media", postKey, "nested", "unused.png"), "utf-8")).resolves.toBe("nested");
+    if (target === "staging") await expect(readFile(join(output, "media", postKey, "nested", "012345abcdef-unused.png"), "utf-8")).resolves.toBe("nested");
     expect(existsSync(join(output, "media", "excluded"))).toBe(false);
-    await expect(readFile(join(output, "media", postKey, "body.png"), "utf-8")).resolves.toBe("body.png");
+    await expect(readFile(join(output, "media", postKey, "012345abcdef-body.png"), "utf-8")).resolves.toBe("012345abcdef-body.png");
   });
 
-  it("defaults the three-argument media helper to production", async () => {
+  it("excludes temporary files, dotfiles and non-stored filenames from staging and its count", async () => {
+    await seedMedia();
+    const dir = join(config.POST_MEDIA_DIR, "demo", postKey);
+    const excluded = [".12345678-1234-1234-1234-123456789abc.tmp", ".keep", "notes.txt", "012345abcde-photo.png", "012345abcdeg-photo.png"];
+    for (const file of excluded) await writeFile(join(dir, file), "not stored media");
+    await mkdir(join(dir, ".hidden"));
+    await writeFile(join(dir, ".hidden", "012345abcdef-photo.png"), "hidden");
+    const { posts } = await buildSiteConfig(app.prisma, "demo", "staging");
+    const output = join(tempDir, "output");
+    const count = await copyPostMedia("demo", posts, output, "staging");
+    for (const file of [...excluded, ".hidden"]) expect(existsSync(join(output, "media", postKey, file))).toBe(false);
+    expect(count).toBe(5);
+    expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ mediaFiles: 5 }), "blog.build.media copied");
+  });
+
+  it("copies production media with an explicit target", async () => {
     await seedMedia();
     const { posts } = await buildSiteConfig(app.prisma, "demo", "production");
     const output = join(tempDir, "output");
-    expect(await copyPostMedia("demo", posts, output)).toBe(2);
-    expect(await readdir(join(output, "media", postKey))).toEqual(["body.png", "cover.png"]);
+    expect(await copyPostMedia("demo", posts, output, "production")).toBe(2);
+    expect(await readdir(join(output, "media", postKey))).toEqual(["012345abcdef-body.png", "012345abcdef-cover.png"]);
   });
 
   it.each(["production", "staging"] as const)("allows posts without a media directory on %s and logs NO-OP", async (target) => {
@@ -184,11 +199,11 @@ describe("post media build output", () => {
 
   it.each(["production", "staging"] as const)("fails %s for missing references before activating the build", async (target) => {
     await seedMedia();
-    await rm(join(config.POST_MEDIA_DIR, "demo", postKey, "body.png"));
+    await rm(join(config.POST_MEDIA_DIR, "demo", postKey, "012345abcdef-body.png"));
     const result = await runBuild(app.prisma, "build-id", "demo", target);
     expect(result.success).toBe(false);
     expect(result.errorLog).toContain(postKey);
-    expect(result.errorLog).toContain(mediaUrl("body.png"));
+    expect(result.errorLog).toContain(mediaUrl("012345abcdef-body.png"));
     expect(existsSync(join(config.BUILDS_DIR, "demo", `current-${target}`))).toBe(false);
   });
 
@@ -202,7 +217,7 @@ describe("post media build output", () => {
     expect(serialized.posts).toHaveLength(target === "production" ? 1 : 2);
     expect(serialized.blogLists[fixture.page.id].fr.articles.postKeys).toEqual([]);
     await expect(readFile(join(result.outputPath!, "index.html"), "utf-8")).resolves.toBe("built page");
-    await expect(readFile(join(result.outputPath!, "media", postKey, "body.png"), "utf-8")).resolves.toBe("body.png");
+    await expect(readFile(join(result.outputPath!, "media", postKey, "012345abcdef-body.png"), "utf-8")).resolves.toBe("012345abcdef-body.png");
     expect(existsSync(join(result.outputPath!, "media", "private.png"))).toBe(false);
     expect(info).toHaveBeenCalledWith({ op: "blog.build", target, posts: 1, translations: target === "production" ? 1 : 2, mediaFiles: target === "production" ? 2 : 5 }, expect.any(String));
   });

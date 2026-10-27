@@ -6,6 +6,8 @@ import { Parser } from "htmlparser2";
 import { config } from "../../config.js";
 import { log } from "../../logging.js";
 
+export const STORED_POST_MEDIA_FILENAME_PATTERN = /^[0-9a-f]{12}-[a-z0-9.-]+$/;
+
 export class PostMediaError extends Error {
   constructor(public readonly statusCode: 400 | 404 | 415, message: string) {
     super(message);
@@ -24,7 +26,7 @@ export function detectImageType(buf: Buffer): "png" | "jpeg" | "webp" | "gif" | 
 export function postMediaDiskPath(siteKey: string, mediaUrl: string): string | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(siteKey) || !mediaUrl.startsWith("/media/")) return null;
   const segments = mediaUrl.slice("/media/".length).split("/");
-  if (segments.length < 2 || segments.some((segment) => !/^[a-z0-9.-]+$/.test(segment) || segment === "." || segment === "..")) return null;
+  if (segments.length < 2 || segments.some((segment) => !/^[a-z0-9.-]+$/.test(segment) || segment.startsWith("."))) return null;
   const siteDir = path.resolve(config.POST_MEDIA_DIR, siteKey);
   const diskPath = path.resolve(siteDir, ...segments);
   return diskPath.startsWith(siteDir + path.sep) ? diskPath : null;

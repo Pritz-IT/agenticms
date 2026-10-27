@@ -10,7 +10,7 @@ import { buildSiteConfig } from "./site-config.js";
 import { swapSymlink } from "./symlink.js";
 import { cleanupOldBuilds } from "./cleanup.js";
 import type { BuildResult, SiteConfig } from "./types.js";
-import { postMediaDiskPath, referencedMediaUrls } from "../blog/post-media.js";
+import { postMediaDiskPath, referencedMediaUrls, STORED_POST_MEDIA_FILENAME_PATTERN } from "../blog/post-media.js";
 
 const DEFAULT_SITE_KEY = "demo";
 const HTPASSWD_USERNAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
@@ -71,7 +71,7 @@ export async function copyPostMedia(
   siteKey: string,
   posts: SiteConfig["posts"],
   targetDir: string,
-  target: SiteConfig["buildTarget"] = "production",
+  target: SiteConfig["buildTarget"],
 ): Promise<number> {
   const context = { op: "blog.build.media", siteKey, target, posts: new Set(posts.map(({ key }) => key)).size };
   log.info(context, "blog.build.media requested");
@@ -107,7 +107,11 @@ export async function copyPostMedia(
         await cp(sourceDir, join(targetDir, "media", key), {
           recursive: true,
           filter: async (source) => {
-            if ((await stat(source)).isFile()) copied.add(resolve(source));
+            if (basename(source).startsWith(".")) return false;
+            const entry = await stat(source);
+            if (entry.isDirectory()) return true;
+            if (!entry.isFile() || !STORED_POST_MEDIA_FILENAME_PATTERN.test(basename(source))) return false;
+            copied.add(resolve(source));
             return true;
           },
         });

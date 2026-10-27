@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { SiteConfig } from "./types.js";
 import { loadBlogPostViews } from "../blog/views.js";
-import { blogListDefaults, parseBlogListFilter, resolveBlogList } from "../blog/bloglist.js";
+import { BlogListFilterError, blogListDefaults, parseBlogListFilter, resolveBlogList } from "../blog/bloglist.js";
 import { collectSiteRoutes, assertNoRouteCollisions } from "../blog/route-lock.js";
 
 // Builds the SiteConfig used to drive an astro build. Previously this was
@@ -69,7 +69,13 @@ export async function buildSiteConfig(prisma: PrismaClient, siteKey: string, tar
   for (const page of pages) {
     for (const [fieldKey, initial] of Object.entries(blogListDefaults(page.layout?.detectedKeys))) {
       const value = page.contents.find((content) => content.key === fieldKey && content.locale === site.defaultLocale)?.value ?? initial;
-      const filter = parseBlogListFilter(value);
+      let filter;
+      try {
+        filter = parseBlogListFilter(value);
+      } catch (error) {
+        if (!(error instanceof BlogListFilterError)) throw error;
+        throw new Error(`Page ${page.path}, bloglist field ${fieldKey}: ${error.message}`, { cause: error });
+      }
       for (const { code } of locales) {
         blogLists[page.id] ??= {};
         blogLists[page.id][code] ??= {};

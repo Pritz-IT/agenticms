@@ -139,6 +139,9 @@ describe("private post media", () => {
     expect(postMediaDiskPath("demo--", "/media/post/a.png")).toBe(path.resolve(config.POST_MEDIA_DIR, "demo--/post/a.png"));
     await expect(storePostMedia("demo", "../escape", "x.png", png, logger)).rejects.toBeInstanceOf(PostMediaError);
   });
+  it.each(["/media/post/.x.tmp", "/media/post/.keep", "/media/.hidden/a.png", "/media/post/.hidden/a.png"])("rejects dot-prefixed path segments: %s", (url) => {
+    expect(postMediaDiskPath("demo", url)).toBeNull();
+  });
   it("collects unique body image and cover media references using HTML parsing", () => {
     expect(referencedMediaUrls('<img src="/media/post/a.png"><IMG SRC=/media/post/b.png><img src="/media/post/a.png"><img src="/assets/a.png"><a href="/media/post/link.png">Link</a><!-- <img src="/media/post/comment.png"> -->', "/media/post/cover.png"))
       .toEqual(["/media/post/a.png", "/media/post/b.png", "/media/post/cover.png"]);

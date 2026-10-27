@@ -20,6 +20,16 @@ beforeEach(async () => {
 });
 
 describe("buildSiteConfig", () => {
+  it.each(["{invalid", '{"pageSize":0}'])("names the page and field for malformed stored bloglist %s", async (value) => {
+    const site = await app.prisma.site.create({ data: { key: "demo", name: "Demo", domain: "demo.local", stagingDomain: "staging.demo.local", defaultLocale: "de" } });
+    const layout = await app.prisma.layout.create({ data: { siteId: site.id, name: "News", filePath: "News.tsx", detectedKeys: { articles: { type: "bloglist" } } } });
+    await app.prisma.page.create({ data: {
+      siteId: site.id, path: "/news", isPublished: true, layoutId: layout.id,
+      contents: { create: { key: "articles", locale: "de", type: "bloglist", value } },
+    } });
+    await expect(buildSiteConfig(app.prisma, "demo", "staging")).rejects.toThrow(/Page \/news.*articles.*(?:Bloglist|pageSize)/);
+  });
+
   it("returns only assets for the selected site", async () => {
     const demo = await app.prisma.site.create({
       data: { key: "demo", name: "Demo Site", domain: "demo.local", stagingDomain: "staging.demo.local", defaultLocale: "de" },
