@@ -1,3 +1,4 @@
+import { BlogListField } from "./BlogListField";
 import { RotateCcw } from "lucide-react";
 import { RichTextEditor } from "./RichTextEditor";
 import { ImagePicker } from "./ImagePicker";
@@ -7,6 +8,7 @@ import type { ContentType } from "../api/types";
 
 interface ContentFieldProps {
   siteKey: string;
+  locale: string;
   fieldKey: string;
   type: ContentType;
   value: string;
@@ -18,6 +20,7 @@ interface ContentFieldProps {
 }
 
 const TYPE_LABEL: Record<ContentType, string> = {
+  bloglist: "blog list",
   text: "text",
   richtext: "rich text",
   image: "image",
@@ -27,6 +30,7 @@ const TYPE_LABEL: Record<ContentType, string> = {
 
 export function ContentField({
   siteKey,
+  locale,
   fieldKey,
   type,
   value,
@@ -69,7 +73,9 @@ export function ContentField({
         )}
       </div>
 
-      {type === "richtext" ? (
+      {type === "bloglist" ? (
+        <BlogListField siteKey={siteKey} locale={locale} value={value} onChange={onChange} />
+      ) : type === "richtext" ? (
         <RichTextEditor value={value} onChange={onChange} placeholder={`Enter ${fieldKey}…`} />
       ) : type === "image" ? (
         <ImagePicker siteKey={siteKey} value={value} onChange={onChange} />

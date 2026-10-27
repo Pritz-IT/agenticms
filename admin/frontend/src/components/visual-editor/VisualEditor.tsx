@@ -9,7 +9,10 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { VisualEditorContext, type FieldMeta } from "./VisualEditorContext";
 import { EditPopover } from "./EditPopover";
-import type { LayoutProps } from "./agenticms-shims";
+import { fetchPageBlogLists } from "../../api/blog";
+import { fetchMediaObjectUrl } from "../../lib/media-url";
+import { blogErrorMessage, showBlogError } from "../../lib/blog-error";
+import type { BlogList, LayoutProps } from "./agenticms-shims";
 import { apiRaw } from "../../api/client";
 import type { Layout, Content, LayoutKey, LayoutKeyType } from "../../api/types";
 
@@ -49,6 +52,8 @@ const EDITOR_CSS = `
 // after the layout DOM has been committed — correct timing guaranteed.
 function IframeRenderer({
   LayoutComponent,
+  blogLists,
+  onPreviewPageChange,
   contentMap,
   keyTypes,
   locale,
@@ -56,6 +61,8 @@ function IframeRenderer({
   onFieldClick,
 }: {
   LayoutComponent: ComponentType<LayoutProps>;
+  blogLists: Record<string, BlogList>;
+  onPreviewPageChange: (page: number) => void;
   contentMap: Record<string, string>;
   keyTypes: Record<string, LayoutKeyType>;
   locale: string;
@@ -79,7 +86,7 @@ function IframeRenderer({
     for (const [key, value] of Object.entries(contentMap)) {
       if (key.startsWith("_meta.") || !value) continue;
       const type = keyTypes[key];
-      if (type === "richtext") continue;
+      if (type === "richtext" || type === "bloglist") continue;
       if (type === "link") {
         linkKeys.set(value, key);
       } else if (value.startsWith("/") || value.startsWith("http")) {
@@ -219,7 +226,27 @@ function IframeRenderer({
         el.classList.remove("sf-ve-editable");
       }
     };
-  }, [contentMap, keyTypes, onFieldClick]);
+  }, [contentMap, keyTypes, onFieldClick, blogLists]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const base = container.ownerDocument.baseURI;
+    const pages = Object.values(blogLists).flatMap((list) => list.pagination?.pages ?? []);
+    const handlePagination = (event: MouseEvent) => {
+      const link = (event.target as Element).closest("a[href]");
+      if (!link) return;
+      const href = new URL(link.getAttribute("href")!, base).href;
+      const page = pages.find((entry) => new URL(entry.url, base).href === href);
+      if (!page) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onPreviewPageChange(page.number);
+    };
+    // Capture before field-edit handlers, including wrappers around the whole list.
+    container.addEventListener("click", handlePagination, true);
+    return () => container.removeEventListener("click", handlePagination, true);
+  }, [blogLists, onPreviewPageChange]);
 
   return (
     <VisualEditorContext.Provider
@@ -228,6 +255,7 @@ function IframeRenderer({
       <div ref={containerRef}>
         <LayoutComponent
           content={contentMap}
+          blogLists={blogLists}
           navigation={[]}
           locale={locale}
           locales={[]}
@@ -240,6 +268,8 @@ function IframeRenderer({
 
 interface VisualEditorProps {
   siteKey: string;
+  pageId: string;
+  defaultLocale: string;
   layout: Layout;
   contentEntries: Content[];
   detectedKeys: Record<string, LayoutKey>;
@@ -249,6 +279,8 @@ interface VisualEditorProps {
 
 export function VisualEditor({
   siteKey,
+  pageId,
+  defaultLocale,
   layout,
   contentEntries,
   detectedKeys,
@@ -257,6 +289,12 @@ export function VisualEditor({
 }: VisualEditorProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const rootRef = useRef<Root | null>(null);
+  const unmountPreview = useCallback(() => {
+    const root = rootRef.current;
+    rootRef.current = null;
+    // The iframe is a separate React root; dispose it after the parent commit.
+    if (root) queueMicrotask(() => root.unmount());
+  }, []);
   const [LayoutComponent, setLayoutComponent] =
     useState<ComponentType<LayoutProps> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -333,6 +371,73 @@ export function VisualEditor({
     };
   }, [layout.id, siteKey]);
 
+  const savedFilters = JSON.stringify(Object.entries(detectedKeys)
+    .filter(([, definition]) => definition.type === "bloglist")
+    .map(([key, definition]) => [key, contentEntries.find((entry) => entry.key === key && entry.locale === defaultLocale)?.value ?? definition.initial ?? ""]));
+  const previewScope = JSON.stringify([siteKey, pageId, locale, savedFilters]);
+  const [paging, setPaging] = useState({ scope: previewScope, page: 1 });
+  const previewPage = paging.scope === previewScope ? paging.page : 1;
+  const [blogLists, setBlogLists] = useState<Record<string, BlogList>>({});
+  const previewRequest = JSON.stringify([previewScope, previewPage]);
+  const [loadedPreview, setLoadedPreview] = useState("");
+  const [blogListsError, setBlogListsError] = useState<string | null>(null);
+  const [blogListsLoading, setBlogListsLoading] = useState(false);
+  const handlePreviewPageChange = useCallback((page: number) => {
+    setPaging({ scope: previewScope, page });
+    setEditingField(null);
+  }, [previewScope]);
+
+  useEffect(() => {
+    let disposed = false;
+    const objectUrls: string[] = [];
+    setBlogLists({});
+    setBlogListsError(null);
+    if (savedFilters === "[]") {
+      setBlogListsLoading(false);
+      return;
+    }
+    setBlogListsLoading(true);
+
+    async function loadBlogLists() {
+      try {
+        const lists = await fetchPageBlogLists(siteKey, pageId, locale, previewPage);
+        if (disposed) return;
+        for (const list of Object.values(lists)) {
+          for (const post of list.posts) {
+            if (!post.coverImage.startsWith("/media/")) continue;
+            const url = await fetchMediaObjectUrl(siteKey, post.coverImage);
+            if (disposed) {
+              URL.revokeObjectURL(url);
+              return;
+            }
+            objectUrls.push(url);
+            post.coverImage = url;
+          }
+        }
+        setBlogLists(lists);
+        setLoadedPreview(previewRequest);
+      } catch (error) {
+        objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));
+        if (!disposed) {
+          showBlogError("load blog preview", error);
+          setBlogListsError(blogErrorMessage(error));
+        }
+      } finally {
+        if (!disposed) setBlogListsLoading(false);
+      }
+    }
+    void loadBlogLists();
+    return () => {
+      disposed = true;
+      objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [siteKey, pageId, locale, previewPage, savedFilters, previewRequest]);
+
+  useEffect(() => {
+    setPendingEdits({});
+    setEditingField(null);
+  }, [siteKey, pageId, locale]);
+
   // Clear pending edits once the API data catches up
   useEffect(() => {
     setPendingEdits((prev) => {
@@ -354,7 +459,7 @@ export function VisualEditor({
       map[key] = def.initial ?? "";
     }
     for (const entry of contentEntries) {
-      if (entry.locale === locale) {
+      if (entry.locale === (entry.type === "bloglist" ? defaultLocale : locale)) {
         map[entry.key] = entry.value;
       }
     }
@@ -362,7 +467,7 @@ export function VisualEditor({
       map[key] = value;
     }
     return map;
-  }, [detectedKeys, contentEntries, locale, pendingEdits]);
+  }, [detectedKeys, contentEntries, locale, defaultLocale, pendingEdits]);
 
   const keyTypes = useMemo(() => {
     const map: Record<string, LayoutKeyType> = {};
@@ -391,25 +496,23 @@ export function VisualEditor({
 
   const handleSave = useCallback(
     (key: string, value: string) => {
-      setPendingEdits((prev) => ({ ...prev, [key]: value }));
+      if (keyTypes[key] !== "bloglist") setPendingEdits((prev) => ({ ...prev, [key]: value }));
       onContentChange(key, value);
       setEditingField(null);
     },
-    [onContentChange]
+    [onContentChange, keyTypes]
   );
 
   const iframeCallbackRef = useCallback((node: HTMLIFrameElement | null) => {
     if (!node) {
-      rootRef.current?.unmount();
-      rootRef.current = null;
+      unmountPreview();
       iframeRef.current = null;
       setIframeReady(false);
       return;
     }
 
     if (iframeRef.current !== node) {
-      rootRef.current?.unmount();
-      rootRef.current = null;
+      unmountPreview();
       setIframeReady(false);
     }
 
@@ -426,7 +529,7 @@ export function VisualEditor({
     style.textContent = EDITOR_CSS;
     doc.head.appendChild(style);
     setIframeReady(true);
-  }, []);
+  }, [unmountPreview]);
 
   useEffect(() => {
     if (!iframeReady || !LayoutComponent) return;
@@ -443,9 +546,16 @@ export function VisualEditor({
       rootRef.current = createRoot(container);
     }
 
+    if (savedFilters !== "[]" && loadedPreview !== previewRequest) {
+      rootRef.current.render(null);
+      return;
+    }
+
     rootRef.current.render(
       <IframeRenderer
         LayoutComponent={LayoutComponent}
+        blogLists={blogLists}
+        onPreviewPageChange={handlePreviewPageChange}
         contentMap={contentMap}
         keyTypes={keyTypes}
         locale={locale}
@@ -456,6 +566,11 @@ export function VisualEditor({
   }, [
     iframeReady,
     LayoutComponent,
+    blogLists,
+    handlePreviewPageChange,
+    savedFilters,
+    loadedPreview,
+    previewRequest,
     contentMap,
     keyTypes,
     locale,
@@ -463,12 +578,7 @@ export function VisualEditor({
     onContentChange,
   ]);
 
-  useEffect(() => {
-    return () => {
-      rootRef.current?.unmount();
-      rootRef.current = null;
-    };
-  }, []);
+  useEffect(() => unmountPreview, [unmountPreview]);
 
   if (loadError) {
     return (
@@ -490,7 +600,17 @@ export function VisualEditor({
   }
 
   return (
-    <div className="flex-1 overflow-hidden relative bg-neutral-950">
+    <div className="flex-1 flex flex-col overflow-hidden relative bg-neutral-950">
+      {Object.entries(keyTypes).some(([, type]) => type === "bloglist") && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-neutral-800 p-2 text-xs text-neutral-300">
+          {Object.entries(keyTypes).filter(([, type]) => type === "bloglist").map(([key]) => (
+            <button key={key} type="button" className="rounded border border-neutral-700 px-2 py-1 hover:bg-neutral-800"
+              onClick={(event) => handleFieldClick({ key, type: "bloglist" }, event.currentTarget)}>Edit {key}</button>
+          ))}
+          {blogListsLoading && <span role="status">Loading posts…</span>}
+          {blogListsError && <span role="alert" className="text-red-400">{blogListsError}</span>}
+        </div>
+      )}
       {isStalePreview && (
         <div className="absolute left-3 top-3 z-10 rounded border border-amber-500/40 bg-amber-950/90 px-3 py-1 text-xs text-amber-100 shadow">
           Preview from last working layout version
@@ -499,12 +619,15 @@ export function VisualEditor({
 
       <iframe
         ref={iframeCallbackRef}
-        style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+        title="Layout preview"
+        style={{ width: "100%", flex: 1, minHeight: 0, border: "none", display: "block" }}
       />
 
       {editingField && (() => {
         const elRect = editingField.element.getBoundingClientRect();
-        const iframeRect = iframeRef.current?.getBoundingClientRect();
+        const iframeRect = editingField.element.ownerDocument === document
+          ? { x: 0, y: 0 }
+          : iframeRef.current?.getBoundingClientRect();
         if (!iframeRect) return null;
         // EditPopover lives outside the iframe's React tree, so the
         // VisualEditorContext.Provider that wraps IframeRenderer doesn't

@@ -1,3 +1,4 @@
+import type { BlogList } from "../components/visual-editor/agenticms-shims";
 import { api } from "./client";
 import type { BlogCategory, BlogTag, BlogPost, BlogPostInput } from "./types";
 
@@ -89,4 +90,9 @@ export function unpublishBlogTranslation(siteKey: string, key: string, locale: s
   return api(`${postPath(siteKey, key)}/translations/${encodeURIComponent(locale)}/unpublish`, {
     method: "POST",
   });
+}
+
+export function fetchPageBlogLists(siteKey: string, pageId: string, locale: string, page: number): Promise<Record<string, BlogList>> {
+  const params = new URLSearchParams({ locale, page: String(page) });
+  return api(`/api/sites/${encodeURIComponent(siteKey)}/pages/${encodeURIComponent(pageId)}/blog-lists?${params}`);
 }

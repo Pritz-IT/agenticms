@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { showBlogError } from "../lib/blog-error";
 import { toastError } from "../lib/toast-error";
 import { createKeyedDebounce } from "../lib/keyed-debounce";
 import { Eye, FormInput } from "lucide-react";
@@ -72,12 +73,25 @@ export function PageEditorPage() {
     enabled: !!id && !!selectedLocale,
   });
 
+  const defaultContentQuery = useQuery({
+    queryKey: ["content", siteKey, id, defaultLocale],
+    queryFn: () => fetchContent(siteKey, id!, { locale: defaultLocale }),
+    enabled: !!id && !!defaultLocale,
+  });
+
+  const contentError = contentQuery.error ?? defaultContentQuery.error;
+  useEffect(() => { if (contentError) showBlogError("load page content", contentError); }, [contentError]);
+
   const page = pageQuery.data;
   const layouts = layoutsQuery.data ?? [];
   const layout = page?.layout ?? layouts.find((l) => l.id === page?.layoutId);
-  const contentEntries: Content[] = contentQuery.data ?? [];
+  const contentEntries: Content[] = [
+    ...(contentQuery.data ?? []).filter((entry) => entry.type !== "bloglist"),
+    ...(defaultContentQuery.data ?? []).filter((entry) => entry.type === "bloglist"),
+  ];
 
   // contentMap: key -> Content
+  const localeContentCount = contentQuery.data?.length ?? 0;
   const contentMap = new Map<string, Content>(contentEntries.map((c) => [c.key, c]));
 
   // Local path state for the path input
@@ -102,17 +116,18 @@ export function PageEditorPage() {
   const createContentMutation = useMutation({
     mutationFn: (data: Parameters<typeof createContent>[1]) => createContent(siteKey, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["content", siteKey, id, selectedLocale] });
+      qc.invalidateQueries({ queryKey: ["content", siteKey, id] });
     },
-    onError: (err) => {
-      toastError("Failed to save content", err);
+    onError: (err, data) => {
+      if (data.type === "bloglist") showBlogError("save blog filter", err);
+      else toastError("Failed to save content", err);
     },
   });
 
   const resetContentMutation = useMutation({
     mutationFn: (contentId: string) => deleteContent(siteKey, contentId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["content", siteKey, id, selectedLocale] });
+      qc.invalidateQueries({ queryKey: ["content", siteKey, id] });
       qc.invalidateQueries({ queryKey: ["pages", siteKey, id] });
       toast.success("Reset to layout default");
     },
@@ -124,7 +139,7 @@ export function PageEditorPage() {
   const cleanupOrphansMutation = useMutation({
     mutationFn: () => deleteOrphanedContent(siteKey, id!),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["content", siteKey, id, selectedLocale] });
+      qc.invalidateQueries({ queryKey: ["content", siteKey, id] });
       qc.invalidateQueries({ queryKey: ["pages", siteKey, id] });
       toast.success(`Removed ${data.deleted} orphaned entries`);
     },
@@ -136,7 +151,7 @@ export function PageEditorPage() {
   const resetAllMutation = useMutation({
     mutationFn: () => resetAllContent(siteKey, id!, selectedLocale),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["content", siteKey, id, selectedLocale] });
+      qc.invalidateQueries({ queryKey: ["content", siteKey, id] });
       qc.invalidateQueries({ queryKey: ["pages", siteKey, id] });
       toast.success(`Reset ${data.deleted} fields to layout defaults`);
     },
@@ -158,11 +173,12 @@ export function PageEditorPage() {
     const keyDef = layout?.detectedKeys?.[key];
     if (keyDef && isContentType(keyDef.type)) {
       const type = existing?.type ?? keyDef.type;
-      contentSaveDebounceRef.current.schedule(`${selectedLocale}:${key}`, () => {
+      const contentLocale = type === "bloglist" ? defaultLocale : selectedLocale;
+      contentSaveDebounceRef.current.schedule(`${contentLocale}:${key}`, () => {
         createContentMutation.mutate({
           pageId: id!,
           key,
-          locale: selectedLocale,
+          locale: contentLocale,
           value,
           type,
         });
@@ -174,7 +190,7 @@ export function PageEditorPage() {
   const allContents: Content[] = page?.contents ?? [];
   const detectedKeys = layout?.detectedKeys ?? {};
   const totalKeys = Object.entries(detectedKeys).filter(
-    ([k, def]) => !k.startsWith("_meta.") && isContentType(def.type)
+    ([k, def]) => !k.startsWith("_meta.") && isContentType(def.type) && def.type !== "bloglist"
   ).length;
 
   const completionMap: Record<string, { filled: number; total: number }> = {};
@@ -182,7 +198,7 @@ export function PageEditorPage() {
     const localeContents = allContents.filter((c) => c.locale === locale.code);
     const filled = localeContents.filter((c) => {
       const type = detectedKeys[c.key]?.type;
-      return !c.key.startsWith("_meta.") && !!type && isContentType(type) && c.value && c.value.trim() !== "";
+      return !c.key.startsWith("_meta.") && !!type && isContentType(type) && type !== "bloglist" && c.value && c.value.trim() !== "";
     }).length;
     completionMap[locale.code] = { filled, total: totalKeys };
   }
@@ -268,7 +284,11 @@ export function PageEditorPage() {
       {/* Main layout: center + right sidebar */}
       <div className="flex-1 flex overflow-hidden">
         {/* Center content area */}
-        {activeTab === "fields" ? (
+        {contentError ? (
+          <div role="alert" className="p-6 text-red-400">Failed to load page content.</div>
+        ) : contentQuery.isPending || defaultContentQuery.isPending ? (
+          <div className="p-6 text-neutral-400">Loading content…</div>
+        ) : activeTab === "fields" ? (
           <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
             {regularKeys.length === 0 && !layout ? (
               <div className="text-neutral-500 text-sm">
@@ -286,6 +306,7 @@ export function PageEditorPage() {
                   return (
                     <ContentField
                       siteKey={siteKey}
+                      locale={selectedLocale}
                       key={key}
                       fieldKey={key}
                       type={keyDef.type}
@@ -339,7 +360,10 @@ export function PageEditorPage() {
           </div>
         ) : layout ? (
           <VisualEditor
+            key={`${siteKey}:${id}`}
             siteKey={siteKey}
+            pageId={id!}
+            defaultLocale={defaultLocale}
             layout={layout}
             contentEntries={contentEntries}
             detectedKeys={detectedKeys}
@@ -448,18 +472,18 @@ export function PageEditorPage() {
             </div>
 
             {/* Reset all content */}
-            {contentEntries.length > 0 && (
+            {localeContentCount > 0 && (
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm(`Reset all ${contentEntries.length} fields for "${selectedLocale}" to layout defaults?`)) {
+                  if (confirm(`Reset all ${localeContentCount} fields for "${selectedLocale}" to layout defaults?`)) {
                     resetAllMutation.mutate();
                   }
                 }}
                 disabled={resetAllMutation.isPending}
                 className="w-full px-3 py-2 text-xs font-medium rounded border border-amber-800/50 bg-amber-950/30 text-amber-400 hover:bg-amber-900/40 hover:text-amber-300 transition-colors disabled:opacity-50"
               >
-                {resetAllMutation.isPending ? "Resetting…" : `Reset all fields to defaults (${contentEntries.length})`}
+                {resetAllMutation.isPending ? "Resetting…" : `Reset all fields to defaults (${localeContentCount})`}
               </button>
             )}
           </section>

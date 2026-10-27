@@ -6,6 +6,7 @@ export function blogErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     try {
       const body = JSON.parse(error.message);
+      if (typeof body.message === "string") return body.message;
       if (typeof body.error === "string") return body.error;
     } catch (parseError) {
       console.warn("[blog] API error response is not JSON", parseError);

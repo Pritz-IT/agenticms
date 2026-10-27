@@ -81,6 +81,10 @@ describe("blog editor helpers", () => {
 describe("blog API error messages", () => {
   it("shows validation and conflict names without JSON wrapping", () => {
     assert.equal(
+      blogErrorMessage(new ApiError(400, '{"statusCode":400,"error":"Bad Request","message":"Only one bloglist per page can be paginated"}')),
+      "Only one bloglist per page can be paginated"
+    );
+    assert.equal(
       blogErrorMessage(new ApiError(400, '{"error":"Invalid slug for de"}')),
       "Invalid slug for de"
     );

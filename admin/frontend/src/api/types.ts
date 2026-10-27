@@ -38,7 +38,7 @@ export interface Locale {
 }
 
 export interface LayoutKey {
-  type: "text" | "richtext" | "image" | "link" | "page" | "navigation";
+  type: "text" | "richtext" | "image" | "link" | "page" | "bloglist" | "navigation";
   initial: string;
 }
 
@@ -82,7 +82,7 @@ export interface Page {
   contents?: Content[];
 }
 
-export type ContentType = "text" | "richtext" | "image" | "link" | "page";
+export type ContentType = "text" | "richtext" | "image" | "link" | "page" | "bloglist";
 export type LayoutKeyType = ContentType | "navigation";
 
 export interface Content {

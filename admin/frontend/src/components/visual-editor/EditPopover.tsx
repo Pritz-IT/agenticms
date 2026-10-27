@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { BlogListField } from "../BlogListField";
 import { RichTextEditor } from "../RichTextEditor";
 import { ImagePicker } from "../ImagePicker";
 import { PagePicker } from "../PagePicker";
@@ -36,6 +37,7 @@ export function EditPopover({
   onClose,
 }: EditPopoverProps) {
   const [localValue, setLocalValue] = useState(value);
+  const [filterValid, setFilterValid] = useState(true);
   const [relatedValues, setRelatedValues] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -47,7 +49,7 @@ export function EditPopover({
   useEffect(() => {
     setLocalValue(value);
     setRelatedValues(Object.fromEntries(relatedFields.map((field) => [field.key, field.value])));
-  }, [relatedFieldsKey, value]);
+  }, [fieldKey, relatedFieldsKey, value]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -73,6 +75,7 @@ export function EditPopover({
   });
 
   const handleSave = useCallback(() => {
+    if (type === "bloglist" && !filterValid) return;
     if (localValue !== value) {
       onSave(fieldKey, localValue);
     }
@@ -83,19 +86,20 @@ export function EditPopover({
       }
     }
     onClose();
-  }, [fieldKey, localValue, onClose, onSave, relatedFields, relatedValues, value]);
+  }, [fieldKey, localValue, onClose, onSave, relatedFields, relatedValues, value, type, filterValid]);
 
   const isGrouped = relatedFields.length > 0;
-  const top = Math.min(anchorRect.bottom + 8, window.innerHeight - (type === "navigation" ? 520 : isGrouped ? 320 : 200));
+  const top = Math.max(8, Math.min(anchorRect.bottom + 8, window.innerHeight - (type === "bloglist" ? 720 : type === "navigation" ? 520 : isGrouped ? 320 : 200)));
   const left = Math.max(8, anchorRect.left);
   const maxWidth = window.innerWidth - left - 16;
 
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[9999] bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl"
+      className="fixed z-[9999] flex flex-col bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl"
       style={{
         top,
+        maxHeight: window.innerHeight - top - 8,
         left,
         width: Math.min(type === "image" || type === "page" || type === "navigation" ? 560 : 420, maxWidth),
       }}
@@ -111,8 +115,10 @@ export function EditPopover({
         </button>
       </div>
 
-      <div className="p-3">
-        {type === "richtext" ? (
+      <div className="min-h-0 overflow-y-auto p-3">
+        {type === "bloglist" ? (
+          <BlogListField key={fieldKey} siteKey={siteKey} locale={locale} value={localValue} onChange={setLocalValue} onValidityChange={setFilterValid} />
+        ) : type === "richtext" ? (
           <RichTextEditor
             value={localValue}
             onChange={setLocalValue}
@@ -185,7 +191,8 @@ export function EditPopover({
         <button
           type="button"
           onClick={handleSave}
-          className="px-3 py-1.5 text-xs font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"
+          disabled={type === "bloglist" && !filterValid}
+          className="px-3 py-1.5 text-xs font-medium rounded bg-cyan-600 text-white hover:bg-cyan-500 transition-colors disabled:opacity-40"
         >
           Save
         </button>
