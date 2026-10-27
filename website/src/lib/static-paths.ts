@@ -18,6 +18,7 @@ export function buildStaticPaths(config: SiteConfig, defaultLocale: string): Sta
       const slug = pageSlug(page.path, locale.code, defaultLocale);
       const content = resolveContent(page, locale.code, defaultLocale);
       const total = paginatedPageCount(config, page, locale.code);
+      const firstPageIndex = paths.length;
       for (let pageNumber = 1; pageNumber <= total; pageNumber++) {
         paths.push({
           params: { slug: pageNumber === 1 ? slug : `${slug ? `${slug}/` : ""}__page/${pageNumber}` },
@@ -25,6 +26,13 @@ export function buildStaticPaths(config: SiteConfig, defaultLocale: string): Sta
             kind: "page", page, locale: locale.code, content, pageNumber,
             blogLists: blogListsForPage(config, page, locale.code, pageNumber, slug ? `/${slug}` : "/"),
           },
+        });
+      }
+      // nginx needs this directory to recognize even empty or single-page paginated lists.
+      if (Object.values(config.blogLists[page.id]?.[locale.code] ?? {}).some(({ pageSize }) => pageSize != null)) {
+        paths.push({
+          params: { slug: `${slug ? `${slug}/` : ""}__page/1` },
+          props: paths[firstPageIndex].props,
         });
       }
     }

@@ -18,12 +18,15 @@ printf 'must-not-be-public' > "$fixture/assets/__page/2/index.html"
 for target in production staging; do
   build="$fixture/builds/default/$target"
   mkdir -p "$build/news/__page/2" "$build/news/__page/3" \
-    "$build/en/news/__page/2" "$build/about" "$build/media/post" "$build/__page/2"
+    "$build/en/news/__page/2" "$build/about" "$build/media/post" "$build/__page/2" \
+    "$build/insights/__page/1"
   printf '%s-news-1' "$target" > "$build/news/index.html"
   printf '%s-news-2' "$target" > "$build/news/__page/2/index.html"
   printf '%s-news-3' "$target" > "$build/news/__page/3/index.html"
   printf '%s-en-news-2' "$target" > "$build/en/news/__page/2/index.html"
   printf '%s-about' "$target" > "$build/about/index.html"
+  printf '%s-insights-1' "$target" > "$build/insights/index.html"
+  printf '%s-insights-1' "$target" > "$build/insights/__page/1/index.html"
   printf '%s-home-1' "$target" > "$build/index.html"
   printf '%s-home-2' "$target" > "$build/__page/2/index.html"
   printf '%s-media' "$target" > "$build/media/post/cover.png"
@@ -100,6 +103,10 @@ for target in production staging; do
   check '/news/?page=99' 404
   check '/news' 200 "$target-news-1"
   check '/news?utm_source=x' 200 "$target-news-1"
+  check '/insights' 200 "$target-insights-1"
+  check '/insights?page=2' 404
+  check '/insights?page=1' 301 '' '/insights'
+  check '/insights/__page/1/' 404
   for page in abc 1 2 99; do
     check "/about?page=$page" 200 "$target-about"
   done
