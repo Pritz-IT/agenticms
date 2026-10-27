@@ -21,6 +21,7 @@ import { registerSiteFormsRoutes } from "./routes/site-forms.js";
 import localesRoutes, { registerSiteLocalesRoutes } from "./routes/locales.js";
 import layoutsRoutes, { registerSiteLayoutsRoutes } from "./routes/layouts.js";
 import pagesRoutes, { registerSitePagesRoutes } from "./routes/pages.js";
+import { registerSiteBlogRoutes } from "./routes/blog.js";
 import contentRoutes, { registerSiteContentRoutes } from "./routes/content.js";
 import navigationRoutes, { registerSiteNavigationRoutes } from "./routes/navigation.js";
 import assetsRoutes, { registerSiteAssetsRoutes } from "./routes/assets.js";
@@ -150,6 +151,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(registerSiteGlobalAssetsRoutes, { prefix: "/api/sites" });
   await app.register(siteGlobalLayoutTemplateRoutes, { prefix: "/api/sites" });
   await app.register(registerSitePagesRoutes, { prefix: "/api/sites" });
+  await app.register(registerSiteBlogRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteLayoutsRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteLocalesRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteContentRoutes, { prefix: "/api/sites" });
