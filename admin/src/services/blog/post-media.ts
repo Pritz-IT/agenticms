@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
@@ -38,18 +38,34 @@ export async function storePostMedia(siteKey: string, postKey: string, fileName:
     if (!type) throw new PostMediaError(415, "Unsupported image type; use PNG, JPEG, WebP or GIF");
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(postKey)) throw new PostMediaError(400, "Invalid post key");
     const baseName = path.posix.basename(fileName.replaceAll("\\", "/"));
-    const stem = path.parse(baseName).name.toLowerCase().replace(/[^a-z0-9.-]/g, "-") || "image";
-    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 12);
-    const url = `/media/${postKey}/${hash}-${stem}.${type}`;
+    const stem = path.parse(baseName).name.toLowerCase().replace(/[^a-z0-9.-]/g, "-").slice(0, 60) || "image";
+    const hash = createHash("sha256").update(buf).digest("hex");
+    const url = `/media/${postKey}/${hash.slice(0, 12)}-${stem}.${type}`;
     const diskPath = postMediaDiskPath(siteKey, url);
     if (!diskPath) throw new PostMediaError(400, "Invalid post media path");
     await fs.mkdir(path.dirname(diskPath), { recursive: true });
+    const tempPath = path.join(path.dirname(diskPath), `.${randomUUID()}.tmp`);
     try {
-      await fs.writeFile(diskPath, buf, { flag: "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      logger.info(context, "blog.media.store NO-OP — content address already exists");
-      return url;
+      await fs.writeFile(tempPath, buf, { flag: "wx" });
+      try {
+        await fs.link(tempPath, diskPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const existingHash = createHash("sha256").update(await fs.readFile(diskPath)).digest("hex");
+        if (existingHash !== hash) {
+          logger.warn({ ...context, hash, existingHash }, "blog.media.store hash mismatch at existing content address");
+          throw new Error("Post media content address hash mismatch");
+        }
+        logger.info(context, "blog.media.store NO-OP — content address already exists");
+        return url;
+      }
+    } finally {
+      try {
+        await fs.unlink(tempPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        logger.warn({ ...context, err: error }, "blog.media.store temporary file already absent");
+      }
     }
     logger.info(context, "blog.media.store stored");
     return url;

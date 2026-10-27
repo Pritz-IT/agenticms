@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -86,6 +86,50 @@ describe("private post media", () => {
     expect(await fs.readdir(path.dirname(postMediaDiskPath("demo", first)!))).toHaveLength(2);
     expect(postMediaDiskPath("other", first)).not.toBe(postMediaDiskPath("demo", first));
   });
+  it("rejects a truncated file at an existing content address without overwriting it", async () => {
+    const hash = createHash("sha256").update(png).digest("hex").slice(0, 12);
+    const diskPath = postMediaDiskPath("demo", `/media/first-post/${hash}-photo.png`)!;
+    await fs.mkdir(path.dirname(diskPath), { recursive: true });
+    await fs.writeFile(diskPath, png.subarray(0, 8));
+    await expect(storePostMedia("demo", "first-post", "photo.png", png, logger)).rejects.toThrow("hash mismatch");
+    expect(await fs.readFile(diskPath)).toEqual(png.subarray(0, 8));
+    expect(await fs.readdir(path.dirname(diskPath))).toEqual([path.basename(diskPath)]);
+    expect(records.some((r) => r.level === 40 && r.op === "blog.media.store" && r.msg.includes("hash mismatch"))).toBe(true);
+  });
+  it("does not publish a partial write and removes its temporary file", async () => {
+    const writeFile = fs.writeFile.bind(fs);
+    const failure = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    const write = vi.spyOn(fs, "writeFile").mockImplementationOnce(async (file, _data, options) => {
+      await writeFile(file, png.subarray(0, 8), options);
+      throw failure;
+    });
+    try {
+      await expect(storePostMedia("demo", "first-post", "photo.png", png, logger)).rejects.toBe(failure);
+    } finally {
+      write.mockRestore();
+    }
+    expect(await fs.readdir(path.resolve(config.POST_MEDIA_DIR, "demo/first-post"))).toEqual([]);
+    const url = await storePostMedia("demo", "first-post", "photo.png", png, logger);
+    expect(await fs.readFile(postMediaDiskPath("demo", url)!)).toEqual(png);
+  });
+  it("publishes full content for concurrent identical uploads", async () => {
+    const bytes = Buffer.concat([png, Buffer.alloc(1024 * 1024, 42)]);
+    const urls = await Promise.all([
+      storePostMedia("demo", "first-post", "photo.png", bytes, logger),
+      storePostMedia("demo", "first-post", "photo.png", bytes, logger),
+    ]);
+    expect(urls[0]).toBe(urls[1]);
+    const diskPath = postMediaDiskPath("demo", urls[0])!;
+    expect(await fs.readFile(diskPath)).toEqual(bytes);
+    expect(await fs.readdir(path.dirname(diskPath))).toEqual([path.basename(diskPath)]);
+  });
+  it("caps a long multipart filename stem at 60 characters", async () => {
+    const response = await upload(png, `${"A".repeat(300)}.svg`);
+    expect(response.statusCode).toBe(201);
+    const { url } = response.json();
+    expect(url).toMatch(new RegExp(`^/media/first-post/[a-f0-9]{12}-${"a".repeat(60)}\\.png$`));
+    expect(await fs.readFile(postMediaDiskPath("demo", url)!)).toEqual(png);
+  });
   it("confines paths to the site and rejects traversal including encoded paths", async () => {
     for (const url of ["/media/../../etc/passwd", "/media/../demo-other/file.png", "/media/%2e%2e/secret.png", "/media/post/../../secret.png", "/media/post/..\\secret.png", "/media/post/a.png\0", "/assets/post/a.png", "/media//etc/passwd"]) {
       expect(postMediaDiskPath("demo", url)).toBeNull();
@@ -102,6 +146,12 @@ describe("private post media", () => {
     expect(referencedMediaUrls("", null)).toEqual([]);
     expect(referencedMediaUrls("", "/assets/cover.png")).toEqual([]);
   });
+  it("rejects encoded and double-encoded traversal through the HTTP route", async () => {
+    for (const traversal of ["..%2f..%2fetc%2fpasswd", "%252e%252e%252f%252e%252e%252fetc%252fpasswd"]) {
+      const response = await app.inject({ method: "GET", url: `/api/sites/demo/blog/media/${traversal}`, headers: { authorization: auth } });
+      expect([400, 404]).toContain(response.statusCode);
+    }
+  });
   it.each(images)("uploads and serves %s only through authenticated media routes", async (type, bytes) => {
     const response = await upload(bytes);
     expect(response.statusCode).toBe(201);
@@ -113,6 +163,7 @@ describe("private post media", () => {
     expect(media.statusCode).toBe(200);
     expect(media.headers["content-type"]).toBe(`image/${type}`);
     expect(media.headers["x-content-type-options"]).toBe("nosniff");
+    expect(media.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
     expect(media.headers["cache-control"]).toBe("private, no-store");
     expect(media.rawPayload).toEqual(bytes);
     expect((await app.inject({ method: "GET", url })).rawPayload).not.toEqual(bytes);

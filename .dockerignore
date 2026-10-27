@@ -33,6 +33,10 @@ examples
 **/.env
 **/.env.*
 
+# Private post media (runtime and tests)
+**/post-media
+**/post-media-test
+
 # OS
 **/.DS_Store
 **/*.log

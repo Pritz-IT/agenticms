@@ -60,6 +60,7 @@ export async function registerSiteBlogRoutes(app: FastifyInstance) {
     const site = await requireSite(app, request.params.siteKey);
     const diskPath = postMediaDiskPath(site.key, `/media/${request.params["*"]}`);
     reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
     reply.header("Cache-Control", "private, no-store");
     if (!diskPath) return reply.status(404).send({ error: "Post media not found" });
     try {
