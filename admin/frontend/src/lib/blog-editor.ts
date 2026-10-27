@@ -1,5 +1,4 @@
 import type { BlogPost, BlogPostInput, BlogTranslationInput } from "../api/types";
-import { postUrlPath } from "../../../src/services/blog/urls";
 import { slugify } from "./slugify";
 
 export function emptyTranslation(): BlogTranslationInput {
@@ -20,9 +19,25 @@ export function postDraft(post: BlogPost): BlogPostInput {
   return {
     ...shared,
     translations: Object.fromEntries(
-      Object.entries(translations).map(([locale, { updatedAt, ...fields }]) => [locale, fields])
+      Object.entries(translations).map(([locale, { updatedAt, url, ...fields }]) => [locale, fields])
     ),
   };
+}
+
+export function postSaveInput(
+  draft: BlogPostInput,
+  savedTranslations: Record<string, BlogTranslationInput>
+): BlogPostInput {
+  return {
+    ...draft,
+    translations: Object.fromEntries(Object.entries(draft.translations).filter(([locale, translation]) =>
+      savedTranslations[locale] || translation.title || translation.slug || translation.body
+    )),
+  };
+}
+
+export function establishedSlugs(translations: Record<string, BlogTranslationInput>): Record<string, boolean> {
+  return Object.fromEntries(Object.keys(translations).map((locale) => [locale, true]));
 }
 
 export function updateTranslationTitle(
@@ -33,12 +48,6 @@ export function updateTranslationTitle(
   return { ...translation, title, slug: slugEdited ? translation.slug : slugify(title) };
 }
 
-export function stagingPostUrl(
-  domain: string,
-  pagePath: string,
-  locale: string,
-  defaultLocale: string,
-  slug: string
-): string {
-  return `https://${domain}${postUrlPath(pagePath, locale, defaultLocale, slug)}`;
+export function stagingPostUrl(domain: string, url: string): string {
+  return `https://${domain}${url}`;
 }

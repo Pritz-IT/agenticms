@@ -436,6 +436,17 @@ describe("site locale permissions for content editors", () => {
     expect(await app.prisma.locale.findMany({ where: { siteId: defaultSiteId } })).toMatchObject([{ code: "en" }]);
   });
 
+  it("rejects editor POST /api/sites/:siteKey/locales", async () => {
+    const { user } = await createTestUser(app, { role: "editor" });
+    const response = await app.inject({
+      method: "POST", url: "/api/sites/demo/locales",
+      headers: { authorization: `Bearer ${getAccessToken(user)}` },
+      payload: { code: "fr", label: "French" },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(await app.prisma.locale.count({ where: { siteId: defaultSiteId, code: "fr" } })).toBe(0);
+  });
+
   it("still rejects anonymous locale reads", async () => {
     const response = await app.inject({ method: "GET", url: "/api/sites/demo/locales" });
     expect(response.statusCode).toBe(401);

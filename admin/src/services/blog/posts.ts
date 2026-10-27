@@ -4,6 +4,7 @@ import { log } from "../../logging.js";
 import { findImagesWithoutAlt, sanitizeRichTextValue } from "../../lib/content-sanitize.js";
 import { LayoutKindError, requireLayoutOfKind } from "./layout-kind.js";
 import { assertNoRouteCollisions, collectSiteRoutes, lockSiteRoutes, RouteCollisionError } from "./route-lock.js";
+import { postUrlPath } from "./urls.js";
 
 export interface PostTranslationInput {
   slug: string;
@@ -28,7 +29,7 @@ export interface PostInput {
 export interface PostDto extends Omit<PostInput, "publishedAt" | "translations"> {
   publishedAt: string | null;
   updatedAt: string;
-  translations: Record<string, PostTranslationInput & { status: "draft" | "published"; updatedAt: string }>;
+  translations: Record<string, PostTranslationInput & { status: "draft" | "published"; updatedAt: string; url: string }>;
 }
 
 export class PostError extends Error {
@@ -42,7 +43,8 @@ type PostSite = Pick<Site, "id">;
 type SaveMode = "upsert" | "create" | "update";
 const keyPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const postInclude = {
-  category: { select: { key: true } }, layout: { select: { name: true } },
+  site: { select: { defaultLocale: true } },
+  category: { select: { key: true, page: { select: { path: true } } } }, layout: { select: { name: true } },
   tags: { include: { tag: { select: { key: true } } } }, translations: { orderBy: { locale: "asc" } },
 } as const;
 type PostRecord = Prisma.BlogPostGetPayload<{ include: typeof postInclude }>;
@@ -53,7 +55,8 @@ function serialize(post: PostRecord): PostDto {
     layout: post.layout?.name ?? null, publishedAt: post.publishedAt?.toISOString().slice(0, 10) ?? null,
     updatedAt: post.updatedAt.toISOString(),
     translations: Object.fromEntries(post.translations.map(({ locale, slug, title, excerpt, body, coverImage, metaTitle, metaDescription, status, updatedAt }) => [
-      locale, { slug, title, excerpt, body, coverImage, metaTitle, metaDescription, status, updatedAt: updatedAt.toISOString() },
+      locale, { slug, title, excerpt, body, coverImage, metaTitle, metaDescription, status, updatedAt: updatedAt.toISOString(),
+        url: postUrlPath(post.category.page.path, locale, post.site.defaultLocale, slug) },
     ])),
   };
 }
@@ -227,7 +230,7 @@ export async function setPostTranslationStatus(prisma: PrismaClient, site: PostS
       logger.info(context, "blog post status NO-OP — unchanged");
       return post;
     }
-    const { updatedAt, ...fields } = translation;
+    const { updatedAt, url, ...fields } = translation;
     return savePostInTx(tx, site, {
       key, category: post.category, tags: post.tags, layout: post.layout,
       translations: { [locale]: { ...fields, status } },

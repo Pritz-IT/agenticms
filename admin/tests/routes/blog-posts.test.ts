@@ -50,6 +50,25 @@ describe("blog posts", () => {
     expect(JSON.stringify(post)).not.toMatch(/"(?:id|siteId|categoryId|layoutId|tagId|postId)":/);
     expect((await request("GET", "/routing")).json()).toEqual(post);
   });
+  it("returns public URLs on create, read, list, save, publish and unpublish", async () => {
+    const assertUrls = (post: { translations: Record<string, { url: string }> }, base: string, deSlug = "routing") => {
+      expect(post.translations.de.url).toBe(`${base}/${deSlug}/`);
+      expect(post.translations.en.url).toBe(`/en${base}/routing/`);
+    };
+    const created = await request("POST", "", input());
+    expect(created.statusCode).toBe(201);
+    assertUrls(created.json(), "/news");
+    assertUrls((await request("GET", "/routing")).json(), "/news");
+    assertUrls((await request("GET")).json()[0], "/news");
+    const saved = await request("PUT", "/routing", { ...input(), category: "insights", translations: { de: translation("changed") } });
+    expect(saved.statusCode).toBe(200);
+    assertUrls(saved.json(), "/insights", "changed");
+    for (const action of ["publish", "unpublish"]) {
+      const response = await request("POST", `/routing/translations/de/${action}`);
+      expect(response.statusCode).toBe(200);
+      assertUrls(response.json(), "/insights", "changed");
+    }
+  });
   it("sets publishedAt only on first publication, preserves status on save, and unpublishes per locale", async () => {
     await request("POST", "", input());
     const de = await request("POST", "/routing/translations/de/publish");

@@ -28,7 +28,7 @@ import { LocaleTabs } from "../components/LocaleTabs";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { BlogSelect } from "../components/blog/BlogSelect";
 import { blogErrorMessage, showBlogError } from "../lib/blog-error";
-import { emptyTranslation, postDraft, stagingPostUrl, updateTranslationTitle } from "../lib/blog-editor";
+import { emptyTranslation, establishedSlugs, postDraft, postSaveInput, stagingPostUrl, updateTranslationTitle } from "../lib/blog-editor";
 import { DEFAULT_SITE_KEY, siteSectionPath } from "../site-routing";
 
 const inputClass =
@@ -111,11 +111,12 @@ function PostEditor({
   const [draft, setDraft] = useState(() => postDraft(post));
   const [selectedLocale, setSelectedLocale] = useState(settings.defaultLocale);
   const [slugEdited, setSlugEdited] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(Object.keys(post.translations).map((locale) => [locale, true]))
+    establishedSlugs(post.translations)
   );
   const translation = draft.translations[selectedLocale] ?? emptyTranslation();
   const savedTranslation = saved.translations[selectedLocale];
-  const dirty = JSON.stringify(draft) !== JSON.stringify(postDraft(saved));
+  const saveInput = postSaveInput(draft, saved.translations);
+  const dirty = JSON.stringify(saveInput) !== JSON.stringify(postDraft(saved));
 
   useEffect(() => {
     if (!dirty) return;
@@ -130,12 +131,13 @@ function PostEditor({
   function acceptSaved(result: BlogPost) {
     setSaved(result);
     setDraft(postDraft(result));
+    setSlugEdited(establishedSlugs(result.translations));
     qc.setQueryData(["blog", siteKey, "posts", post.key], result);
     qc.invalidateQueries({ queryKey: ["blog", siteKey, "posts"] });
   }
 
   const saveMutation = useMutation({
-    mutationFn: () => updateBlogPost(siteKey, post.key, draft),
+    mutationFn: () => updateBlogPost(siteKey, post.key, saveInput),
     onSuccess: (result) => {
       acceptSaved(result);
       toast.success("Post saved");
@@ -165,17 +167,10 @@ function PostEditor({
   });
   const busy = saveMutation.isPending || statusMutation.isPending || deleteMutation.isPending;
   const error = saveMutation.error ?? statusMutation.error ?? deleteMutation.error;
-  const savedCategory = categories.find((category) => category.key === saved.category);
   const categoryDefaultLayout = categories.find((category) => category.key === draft.category)?.defaultLayout;
   const previewUrl =
-    settings.stagingDomain && savedCategory && savedTranslation
-      ? stagingPostUrl(
-          settings.stagingDomain,
-          savedCategory.pagePath,
-          selectedLocale,
-          settings.defaultLocale,
-          savedTranslation.slug
-        )
+    settings.stagingDomain && savedTranslation
+      ? stagingPostUrl(settings.stagingDomain, savedTranslation.url)
       : null;
   const coverPreview =
     settings.stagingDomain && /^\/(assets|media)\//.test(translation.coverImage ?? "")
@@ -356,7 +351,7 @@ function PostEditor({
                 Title
                 <input
                   className={inputClass}
-                  required={!!draft.translations[selectedLocale]}
+                  required={!!saveInput.translations[selectedLocale]}
                   value={translation.title}
                   onChange={(event) =>
                     changeTranslation(
@@ -369,7 +364,7 @@ function PostEditor({
                 Slug
                 <input
                   className={inputClass}
-                  required={!!draft.translations[selectedLocale]}
+                  required={!!saveInput.translations[selectedLocale]}
                   pattern="[a-z0-9]+(-[a-z0-9]+)*"
                   title="Lowercase letters, digits and single hyphens"
                   value={translation.slug}

@@ -172,7 +172,7 @@ async function validateBatch(tx: Prisma.TransactionClient, site: PushSite, posts
       if (sharedChange && draft) {
         for (const [locale, translation] of Object.entries(old?.translations ?? {})) {
           if (translation.status === "published") {
-            const { updatedAt, ...fields } = translation;
+            const { updatedAt, url, ...fields } = translation;
             input.translations[locale] = { ...fields, ...input.translations[locale], status: "draft" };
           }
         }

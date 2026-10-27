@@ -30,7 +30,7 @@ beforeEach(async () => {
   siteId = site.id;
   await app.prisma.page.createMany({ data: [{ siteId, path: "/" }, { siteId, path: "/insights" }, { siteId, path: "/other" }] });
   await app.prisma.layout.create({ data: { siteId, name: "Post", filePath: "Article.tsx", kind: "post" } });
-  const { user } = await createTestUser(app, { role: "editor" });
+  const { user } = await createTestUser(app, { role: "admin" });
   auth = `Bearer ${getAccessToken(user)}`;
   records.length = 0;
 });
@@ -48,7 +48,7 @@ describe.each(["categories", "tags"] as const)("blog %s", (resource) => {
   const body = bodies[resource];
   const kind = resource === "categories" ? "category" : "tag";
 
-  it("creates per-locale names, lists without ids, updates and deletes as an editor", async () => {
+  it("creates per-locale names, lists without ids, updates and deletes as an admin", async () => {
     const created = await request("POST", resource, body);
     expect(created.statusCode).toBe(201);
     expect(created.json()).toEqual({ ...body, sortOrder: 0 });
@@ -60,6 +60,20 @@ describe.each(["categories", "tags"] as const)("blog %s", (resource) => {
     expect((await request("PATCH", `${resource}/${body.key}`, {})).statusCode).toBe(200);
     expect((await request("DELETE", `${resource}/${body.key}`)).statusCode).toBe(200);
     expect((await request("GET", resource)).json()).toEqual([]);
+  });
+
+  it.each(["POST", "PATCH", "DELETE"] as const)("rejects editor %s but allows editor GET", async (method) => {
+    const created = await request("POST", resource, body);
+    expect(created.statusCode).toBe(201);
+    const { user } = await createTestUser(app, { role: "editor" });
+    auth = `Bearer ${getAccessToken(user)}`;
+    const read = await request("GET", resource);
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual([created.json()]);
+    const response = await request(method, method === "POST" ? resource : `${resource}/${body.key}`,
+      method === "DELETE" ? undefined : method === "POST" ? { ...body, key: "forbidden" } : { sortOrder: 42 });
+    expect(response.statusCode).toBe(403);
+    expect((await request("GET", resource)).json()).toEqual([created.json()]);
   });
 
   it("rejects duplicate keys with 409", async () => {

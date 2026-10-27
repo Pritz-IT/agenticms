@@ -160,6 +160,7 @@ export async function registerSiteBlogRoutes(app: FastifyInstance) {
       app.route<{ Params: { siteKey: string; key?: string }; Body: unknown }>({
         method,
         url: `/:siteKey/blog/${resource}${action === "create" ? "" : "/:key"}`,
+        preHandler: app.requireRole("admin"),
         handler: async (request, reply) => {
           const site = await requireSite(app, request.params.siteKey);
           try {

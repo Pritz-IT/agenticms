@@ -206,5 +206,5 @@ export interface BlogPostInput {
 export interface BlogPost extends BlogPostInput {
   publishedAt: string | null;
   updatedAt: string;
-  translations: Record<string, BlogTranslationInput & { status: "draft" | "published"; updatedAt: string }>;
+  translations: Record<string, BlogTranslationInput & { status: "draft" | "published"; updatedAt: string; url: string }>;
 }
