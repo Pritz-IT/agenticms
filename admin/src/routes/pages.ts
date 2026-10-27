@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Prisma } from "@prisma/client";
 import { requireSite } from "../services/sites.js";
 import { assertNoRouteCollisions, collectSiteRoutes, lockSiteRoutes, RouteCollisionError } from "../services/blog/route-lock.js";
+import { sendRouteCollision } from "./route-collision.js";
 
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 const DEFAULT_SITE_KEY = "demo";
@@ -30,7 +31,7 @@ function handlePageMutationError(
       return reply.status(400).send({ error: error.message });
     }
     if (error instanceof RouteCollisionError) {
-      return reply.status(409).send({ error: error.message, conflicts: error.conflicts });
+      return sendRouteCollision(reply, error);
     }
     return reply.status(409).send({ error: "A page with this path already exists" });
   }
@@ -132,10 +133,12 @@ export async function createPageForSite(
         if (layout) {
           const detectedKeys = layout.detectedKeys as Record<string, { type: string; initial: string }>;
           const locales = await tx.locale.findMany({ where: { siteId } });
+          const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { defaultLocale: true } });
 
           for (const locale of locales) {
             for (const [key, keyDef] of Object.entries(detectedKeys)) {
               if (!CONTENT_TYPES.has(keyDef.type)) continue;
+              if (keyDef.type === "bloglist" && locale.code !== site.defaultLocale) continue;
 
               await tx.content.upsert({
                 where: { pageId_key_locale: { pageId: createdPage.id, key, locale: locale.code } },

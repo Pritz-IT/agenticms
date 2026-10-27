@@ -7,6 +7,7 @@ import { parseLayoutKeys, parseLayoutKind, extractLayoutName, type LayoutKeys } 
 import { compileLayout } from "./layout-compiler.js";
 import type { LayoutModuleCache } from "./layout-module-cache.js";
 import { log } from "../logging.js";
+import { lockSiteRoutes } from "./blog/route-lock.js";
 
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 const LEGACY_LAYOUT_PREFIX = "/layouts/";
@@ -248,7 +249,7 @@ export async function handleFile(
 /**
  * For each page using this layout × each detected key × each locale:
  * create a Content row with the initial value if one doesn't already exist.
- * Never overwrites existing content.
+ * Bloglist rows belong to the default locale only. Never overwrites existing content.
  */
 export async function prefillContent(
   prisma: PrismaClient,
@@ -256,38 +257,48 @@ export async function prefillContent(
   detectedKeys: LayoutKeys,
   options: LayoutWatcherSiteOptions = {}
 ): Promise<void> {
-  const site = await resolveLayoutSite(prisma, layoutFilePath, options);
-  if (!site) return;
+  const context = { component: "layout-watcher", op: "content.prefill", layoutFilePath, siteId: options.siteId };
+  log.info(context, "content.prefill requested");
+  try {
+    const site = await resolveLayoutSite(prisma, layoutFilePath, options);
+    if (!site) {
+      log.warn(context, "content.prefill NO-OP — site not found");
+      log.info(context, "content.prefill NO-OP — site not found");
+      return;
+    }
 
-  const layout = await prisma.layout.findUnique({ where: { siteId_filePath: { siteId: site.id, filePath: layoutFilePath } } });
-  if (!layout) return;
+    const count = await prisma.$transaction(async (tx) => {
+      await lockSiteRoutes(tx, site.id);
+      const currentSite = await tx.site.findUniqueOrThrow({ where: { id: site.id }, select: { defaultLocale: true } });
+      const layout = await tx.layout.findUnique({ where: { siteId_filePath: { siteId: site.id, filePath: layoutFilePath } } });
+      if (!layout) return 0;
 
-  const [pages, locales] = await Promise.all([
-    prisma.page.findMany({ where: { siteId: site.id, layoutId: layout.id } }),
-    prisma.locale.findMany({ where: { siteId: site.id } }),
-  ]);
+      const [pages, locales] = await Promise.all([
+        tx.page.findMany({ where: { siteId: site.id, layoutId: layout.id } }),
+        tx.locale.findMany({ where: { siteId: site.id } }),
+      ]);
 
-  if (pages.length === 0 || locales.length === 0) return;
-
-  // Build all candidate rows, then batch-insert with skipDuplicates to avoid
-  // N+1 queries (one findUnique + one create per page × key × locale combo).
-  const contentKeys = Object.entries(detectedKeys).filter(([, keyDef]) =>
-    CONTENT_TYPES.has(keyDef.type)
-  );
-
-  const rows = pages.flatMap((page) =>
-    contentKeys.flatMap(([key, keyDef]) =>
-      locales.map((locale) => ({
-        pageId: page.id,
-        key,
-        locale: locale.code,
-        value: keyDef.initial,
-        type: keyDef.type as any,
-      }))
-    )
-  );
-
-  await prisma.content.createMany({ data: rows, skipDuplicates: true });
+      // Batch-insert missing rows without overwriting edited content.
+      const contentKeys = Object.entries(detectedKeys).filter(([, keyDef]) => CONTENT_TYPES.has(keyDef.type));
+      const rows = pages.flatMap((page) =>
+        contentKeys.flatMap(([key, keyDef]) =>
+          locales.filter((locale) => keyDef.type !== "bloglist" || locale.code === currentSite.defaultLocale)
+            .map((locale) => ({
+              pageId: page.id,
+              key,
+              locale: locale.code,
+              value: keyDef.initial,
+              type: keyDef.type as any,
+            }))
+        )
+      );
+      return (await tx.content.createMany({ data: rows, skipDuplicates: true })).count;
+    });
+    log.info({ ...context, siteId: site.id, count }, count > 0 ? "content.prefill done" : "content.prefill NO-OP — no missing rows");
+  } catch (err) {
+    log.error({ ...context, err }, "content.prefill failed");
+    throw err;
+  }
 }
 
 /**

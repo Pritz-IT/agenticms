@@ -8,6 +8,8 @@ import { LayoutModuleCache } from "../../src/services/layout-module-cache.js";
 import { handleFile, prefillContent, startLayoutWatcher } from "../../src/services/layout-watcher.js";
 import type { LayoutModuleCacheEntry } from "../../src/services/layout-module-cache.js";
 
+import * as routeLock from "../../src/services/blog/route-lock.js";
+
 let app: FastifyInstance;
 let defaultSiteId: string;
 let sampleSiteId: string;
@@ -60,6 +62,53 @@ beforeEach(async () => {
 });
 
 describe("prefillContent", () => {
+  it("reads the current default after acquiring the site lock", async () => {
+    await app.prisma.locale.createMany({ data: [
+      { siteId: defaultSiteId, code: "en", label: "English", isDefault: true },
+      { siteId: defaultSiteId, code: "de", label: "Deutsch" },
+    ] });
+    const keys = { posts: { type: "bloglist", initial: '{"pageSize":5}' } };
+    const layout = await app.prisma.layout.create({ data: { siteId: defaultSiteId, name: "News", filePath: "News.tsx", detectedKeys: keys } });
+    const page = await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/news", layoutId: layout.id } });
+    const lockSiteRoutes = routeLock.lockSiteRoutes;
+    const lock = vi.spyOn(routeLock, "lockSiteRoutes");
+    let notifyWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => { notifyWaiting = resolve; });
+    let prefill: Promise<void> | undefined;
+    try {
+      await app.prisma.$transaction(async (tx) => {
+        await lockSiteRoutes(tx, defaultSiteId);
+        lock.mockImplementationOnce(async (prefillTx, siteId) => {
+          notifyWaiting();
+          await lockSiteRoutes(prefillTx, siteId);
+        });
+        prefill = prefillContent(app.prisma, layout.filePath, keys, { siteId: defaultSiteId });
+        await waiting;
+        await tx.site.update({ where: { id: defaultSiteId }, data: { defaultLocale: "de" } });
+      });
+      await prefill;
+      expect(await app.prisma.content.findMany({ where: { pageId: page.id } })).toMatchObject([{ locale: "de", value: '{"pageSize":5}' }]);
+    } finally {
+      lock.mockRestore();
+      await prefill;
+    }
+  });
+
+  it("prefills bloglist only for the default locale and other keys for every locale", async () => {
+    await app.prisma.locale.createMany({ data: [
+      { siteId: defaultSiteId, code: "en", label: "English", isDefault: true },
+      { siteId: defaultSiteId, code: "de", label: "Deutsch" },
+    ] });
+    const keys = { posts: { type: "bloglist", initial: '{"pageSize":5}' }, title: { type: "text", initial: "News" } };
+    const layout = await app.prisma.layout.create({ data: { siteId: defaultSiteId, name: "News", filePath: "News.tsx", detectedKeys: keys } });
+    const page = await app.prisma.page.create({ data: { siteId: defaultSiteId, path: "/news", layoutId: layout.id } });
+    await prefillContent(app.prisma, layout.filePath, keys, { siteId: defaultSiteId });
+    await app.prisma.content.updateMany({ where: { pageId: page.id, key: "posts" }, data: { value: '{"pageSize":10}' } });
+    await prefillContent(app.prisma, layout.filePath, keys, { siteId: defaultSiteId });
+    expect(await app.prisma.content.findMany({ where: { pageId: page.id }, orderBy: [{ key: "asc" }, { locale: "asc" }] }))
+      .toMatchObject([{ key: "posts", locale: "en", value: '{"pageSize":10}' }, { key: "title", locale: "de" }, { key: "title", locale: "en" }]);
+  });
+
   it("does not create page content rows for navigation editor keys", async () => {
     const layout = await app.prisma.layout.create({
       data: {
