@@ -9,6 +9,10 @@ export interface BlogListFilter {
   limit: number | null;
 }
 
+export function shouldResetBlogListDraft(value: string, lastEmitted: string | null, dirty: boolean): boolean {
+  return value !== lastEmitted && !dirty;
+}
+
 export function validateBlogListFilterForm(filter: BlogListFilter): string | null {
   for (const field of ["categories", "tags"] as const) {
     if (!Array.isArray(filter[field]) || filter[field].some((key) => typeof key !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key))) {

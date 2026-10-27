@@ -7,10 +7,12 @@ import {
   type ComponentType,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { VisualEditorContext, type FieldMeta } from "./VisualEditorContext";
 import { EditPopover } from "./EditPopover";
 import { fetchPageBlogLists } from "../../api/blog";
 import { fetchMediaObjectUrl } from "../../lib/media-url";
+import { resolveBlogPreviewCovers } from "../../lib/blog-preview-covers";
 import { blogErrorMessage, showBlogError } from "../../lib/blog-error";
 import type { BlogList, LayoutProps } from "./agenticms-shims";
 import { apiRaw } from "../../api/client";
@@ -402,19 +404,19 @@ export function VisualEditor({
       try {
         const lists = await fetchPageBlogLists(siteKey, pageId, locale, previewPage);
         if (disposed) return;
-        for (const list of Object.values(lists)) {
-          for (const post of list.posts) {
-            if (!post.coverImage.startsWith("/media/")) continue;
-            const url = await fetchMediaObjectUrl(siteKey, post.coverImage);
-            if (disposed) {
-              URL.revokeObjectURL(url);
-              return;
-            }
-            objectUrls.push(url);
-            post.coverImage = url;
-          }
+        const resolved = await resolveBlogPreviewCovers(lists, async (src) => {
+          const url = await fetchMediaObjectUrl(siteKey, src);
+          // Track each completion so cleanup does not wait for slower covers.
+          if (disposed) URL.revokeObjectURL(url);
+          else objectUrls.push(url);
+          return url;
+        });
+        if (disposed) return;
+        for (const { error } of resolved.failures) console.error("[blog] preview cover failed", error);
+        if (resolved.failures.length) {
+          toast.error("Some blog preview covers could not be loaded");
         }
-        setBlogLists(lists);
+        setBlogLists(resolved.lists);
         setLoadedPreview(previewRequest);
       } catch (error) {
         objectUrls.splice(0).forEach((url) => URL.revokeObjectURL(url));

@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { parseBlogListFilter as parseStoredFilter } from "../../src/services/blog/bloglist";
-import { parseBlogListFilter, serializeBlogListFilter, validateBlogListFilterForm } from "../src/lib/bloglist-filter";
+import { parseBlogListFilter, serializeBlogListFilter, shouldResetBlogListDraft, validateBlogListFilterForm } from "../src/lib/bloglist-filter";
+
+describe("bloglist draft synchronization", () => {
+  it("keeps an in-progress draft when its last emitted value is echoed", () => {
+    assert.equal(shouldResetBlogListDraft("saved", "saved", true), false);
+    assert.equal(shouldResetBlogListDraft("saved", "saved", false), false);
+  });
+  it("keeps a newer dirty draft when an older save arrives", () => {
+    assert.equal(shouldResetBlogListDraft("older", "newer", true), false);
+    assert.equal(shouldResetBlogListDraft("external", null, true), false);
+  });
+  it("accepts external changes when no local edits are pending", () => {
+    assert.equal(shouldResetBlogListDraft("external", "saved", false), true);
+    assert.equal(shouldResetBlogListDraft("initial", null, false), true);
+  });
+});
 
 describe("bloglist filter form", () => {
   for (const field of ["pageSize", "limit"] as const) {

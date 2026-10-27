@@ -1,8 +1,8 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBlogCategories, fetchBlogTags } from "../api/blog";
 import { blogErrorMessage, showBlogError } from "../lib/blog-error";
-import { parseBlogListFilter, serializeBlogListFilter, validateBlogListFilterForm, type BlogListFilter } from "../lib/bloglist-filter";
+import { parseBlogListFilter, serializeBlogListFilter, shouldResetBlogListDraft, validateBlogListFilterForm, type BlogListFilter } from "../lib/bloglist-filter";
 import { BlogSelect } from "./blog/BlogSelect";
 
 interface BlogListFieldProps {
@@ -27,7 +27,16 @@ function readFilter(value: string) {
 export function BlogListField({ siteKey, locale, value, onChange, onValidityChange }: BlogListFieldProps) {
   const tagMatchName = useId();
   const [draft, setDraft] = useState(() => readFilter(value));
-  useEffect(() => { setDraft(readFilter(value)); }, [value]);
+  const sync = useRef({ lastEmitted: null as string | null, draftValue: value as string | null, dirty: false });
+  useEffect(() => {
+    const current = sync.current;
+    if (value === current.draftValue) current.dirty = false;
+    if (shouldResetBlogListDraft(value, current.lastEmitted, current.dirty)) {
+      current.lastEmitted = null;
+      current.draftValue = value;
+      setDraft(readFilter(value));
+    }
+  }, [value]);
   const categories = useQuery({ queryKey: ["blog-categories", siteKey], queryFn: () => fetchBlogCategories(siteKey) });
   const tags = useQuery({ queryKey: ["blog-tags", siteKey], queryFn: () => fetchBlogTags(siteKey) });
   const loadError = categories.error ?? tags.error;
@@ -39,7 +48,13 @@ export function BlogListField({ siteKey, locale, value, onChange, onValidityChan
 
   function change(next: BlogListFilter) {
     setDraft({ filter: next, error: null });
-    if (!validateBlogListFilterForm(next)) onChange(serializeBlogListFilter(next));
+    const serialized = validateBlogListFilterForm(next) ? null : serializeBlogListFilter(next);
+    sync.current.draftValue = serialized;
+    sync.current.dirty = serialized !== value;
+    if (serialized !== null) {
+      sync.current.lastEmitted = serialized;
+      onChange(serialized);
+    }
   }
 
   if (!filter) return <div role="alert" className="space-y-2 text-sm text-red-400">
