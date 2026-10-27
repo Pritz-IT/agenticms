@@ -1,3 +1,5 @@
+import type { BlogPostView } from "../components/types";
+
 export interface SiteSettings {
   id: string;
   name: string;
@@ -68,6 +70,9 @@ export interface AssetRef {
 }
 
 export interface SiteConfig {
+  buildTarget: "staging" | "production";
+  posts: (BlogPostView & { layoutFilePath: string })[];
+  blogLists: Record<string, Record<string, Record<string, { postKeys: string[]; pageSize: number | null }>>>;
   settings: SiteSettings | null;
   locales: Locale[];
   layouts: Layout[];
