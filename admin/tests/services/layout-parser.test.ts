@@ -1,12 +1,31 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { parseLayoutKeys, extractLayoutName } from "../../src/services/layout-parser.js";
+import { parseLayoutKeys, parseLayoutKind, extractLayoutName } from "../../src/services/layout-parser.js";
 
 const sampleFixturePath = join(process.cwd(), "tests/fixtures/sample-layout.tsx");
 const sampleContent = readFileSync(sampleFixturePath, "utf-8");
 
+describe("parseLayoutKind", () => {
+  it.each([
+    ["export default function Layout() {}", "page"],
+    ["export const layoutKind = 'post';", "post"],
+    ['export const layoutKind = "post";', "post"],
+    ['export const layoutKind = "page";', "page"],
+    ['export const layoutKind = "unknown";', "page"],
+    ["const layoutKind = 'post';", "page"],
+    ["export const layoutKind = 'post\";", "page"],
+  ])("parses %s as %s", (source, expected) => {
+    expect(parseLayoutKind(source)).toBe(expected);
+  });
+});
+
 describe("parseLayoutKeys", () => {
+  it("keeps bloglist keys with empty initial values", () => {
+    expect(parseLayoutKeys('export const keys = { "news.list": { type: "bloglist", initial: "" } };'))
+      .toEqual({ "news.list": { type: "bloglist", initial: "" } });
+  });
+
   it("extracts all 7 keys from the fixture", () => {
     const keys = parseLayoutKeys(sampleContent);
     expect(Object.keys(keys)).toHaveLength(7);

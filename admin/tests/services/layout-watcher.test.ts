@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { mkdir, mkdtemp, unlink, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "fs/promises";
 import type { FastifyInstance } from "fastify";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -95,6 +95,37 @@ describe("prefillContent", () => {
 });
 
 describe("handleFile layout module cache integration", () => {
+  it.each(["create", "update", "migrate", "merge"])("stores layout kind on %s", async (mode) => {
+    const dir = await mkdtemp(join(tmpdir(), "sf-watcher-kind-"));
+    const file = join(dir, "Post.tsx");
+    try {
+      await writeFile(file, `
+        export const layoutKind = "post";
+        export const keys = { "footer.text": { type: "text", initial: "Footer" } };
+        export default function Post() { return <main />; }
+      `);
+      if (mode === "update" || mode === "merge") {
+        await app.prisma.layout.create({
+          data: { siteId: defaultSiteId, name: "Post", filePath: "Post.tsx" },
+        });
+      }
+      if (mode === "migrate" || mode === "merge") {
+        await app.prisma.layout.create({
+          data: { siteId: defaultSiteId, name: "Post", filePath: "/layouts/Post.tsx" },
+        });
+      }
+
+      await handleFile(app.prisma, file, undefined, { storedFilePath: "Post.tsx" });
+
+      const layout = await app.prisma.layout.findUnique({
+        where: { siteId_filePath: { siteId: defaultSiteId, filePath: "Post.tsx" } },
+      });
+      expect(layout).toMatchObject({ kind: "post" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not fall back to the default site when a nested watched directory is not a site", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sf-watcher-unknown-site-"));
     const file = join(dir, "Home.tsx");

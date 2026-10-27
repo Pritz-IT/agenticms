@@ -90,8 +90,8 @@ export function safeImageUrl(value: string): string {
 }
 
 /**
- * Sanitise a content value according to its declared type. `text` and `page`
- * are rendered escaped / as references and pass through unchanged; only the
+ * Sanitise a content value according to its declared type. `text`, `page` and
+ * `bloglist` (JSON text) pass through unchanged; only the
  * types that reach an HTML sink (richtext, link, image) are sanitised.
  */
 export function sanitizeContentValue(value: string, type: string): string {

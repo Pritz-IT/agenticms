@@ -1,13 +1,17 @@
 import path from "path";
 
 export interface LayoutKey {
-  type: "text" | "richtext" | "image" | "link" | "page" | "navigation";
+  type: "text" | "richtext" | "image" | "link" | "page" | "bloglist" | "navigation";
   initial: string;
 }
 
 export type LayoutKeys = Record<string, LayoutKey>;
 
-const VALID_TYPES = new Set(["text", "richtext", "image", "link", "page", "navigation"]);
+const VALID_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist", "navigation"]);
+
+export function parseLayoutKind(fileContent: string): "page" | "post" {
+  return /export\s+const\s+layoutKind\s*=\s*(['"])post\1/.test(fileContent) ? "post" : "page";
+}
 
 /**
  * Extract the `export const keys = { ... };` block from file content and parse

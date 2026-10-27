@@ -18,6 +18,17 @@ enum ContentType {
   image
   link
   page
+  bloglist
+}
+
+enum LayoutKind {
+  page
+  post
+}
+
+enum BlogTranslationStatus {
+  draft
+  published
 }
 
 enum BuildTarget {
@@ -38,25 +49,28 @@ enum GlobalAssetMode {
 }
 
 model Site {
-  id            String                    @id @default(cuid())
-  key           String                    @unique
-  name          String
-  domain        String
-  stagingDomain String                    @map("staging_domain")
-  defaultLocale String                    @map("default_locale")
-  siteUrl       String?                   @map("site_url")
-  allowedForms  String[]                  @default([]) @map("allowed_forms")
-  createdAt     DateTime                  @default(now()) @map("created_at")
-  updatedAt     DateTime                  @updatedAt @map("updated_at")
-  locales       Locale[]
-  layouts       Layout[]
-  pages         Page[]
-  navigation    Navigation[]
-  stagingAccess StagingAccess[]
-  assets        Asset[]
-  builds        Build[]
-  submissions   Submission[]
-  notifications SiteNotificationSettings?
+  id             String                    @id @default(cuid())
+  key            String                    @unique
+  name           String
+  domain         String
+  stagingDomain  String                    @map("staging_domain")
+  defaultLocale  String                    @map("default_locale")
+  siteUrl        String?                   @map("site_url")
+  allowedForms   String[]                  @default([]) @map("allowed_forms")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+  locales        Locale[]
+  layouts        Layout[]
+  pages          Page[]
+  navigation     Navigation[]
+  stagingAccess  StagingAccess[]
+  assets         Asset[]
+  builds         Build[]
+  submissions    Submission[]
+  notifications  SiteNotificationSettings?
+  blogCategories BlogCategory[]
+  blogTags       BlogTag[]
+  blogPosts      BlogPost[]
 
   @@map("sites")
 }
@@ -135,6 +149,7 @@ model Layout {
   globalTemplateId   String?               @map("global_template_id")
   globalTemplateHash String?               @map("global_template_hash")
   name               String
+  kind               LayoutKind            @default(page)
   filePath           String                @map("file_path")
   detectedKeys       Json                  @default("{}") @map("detected_keys")
   registeredAt       DateTime              @default(now()) @map("registered_at")
@@ -142,6 +157,8 @@ model Layout {
   site               Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
   globalTemplate     GlobalLayoutTemplate? @relation(fields: [globalTemplateId], references: [id], onDelete: SetNull)
   pages              Page[]
+  blogCategories     BlogCategory[]
+  blogPosts          BlogPost[]
 
   @@unique([siteId, filePath])
   @@map("layouts")
@@ -180,19 +197,122 @@ model GlobalAsset {
 }
 
 model Page {
-  id          String       @id @default(cuid())
-  siteId      String       @map("site_id")
-  path        String
-  layoutId    String?      @map("layout_id")
-  sortOrder   Int          @default(0) @map("sort_order")
-  isPublished Boolean      @default(false) @map("is_published")
-  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  layout      Layout?      @relation(fields: [layoutId], references: [id], onDelete: SetNull)
-  contents    Content[]
-  navigations Navigation[]
+  id           String        @id @default(cuid())
+  siteId       String        @map("site_id")
+  path         String
+  layoutId     String?       @map("layout_id")
+  sortOrder    Int           @default(0) @map("sort_order")
+  isPublished  Boolean       @default(false) @map("is_published")
+  site         Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  layout       Layout?       @relation(fields: [layoutId], references: [id], onDelete: SetNull)
+  contents     Content[]
+  navigations  Navigation[]
+  blogCategory BlogCategory?
 
   @@unique([siteId, path])
   @@map("pages")
+}
+
+model BlogCategory {
+  id              String                @id @default(cuid())
+  siteId          String                @map("site_id")
+  key             String
+  pageId          String                @unique @map("page_id")
+  defaultLayoutId String                @map("default_layout_id")
+  sortOrder       Int                   @default(0) @map("sort_order")
+  site            Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  page            Page                  @relation(fields: [pageId], references: [id], onDelete: Restrict)
+  defaultLayout   Layout                @relation(fields: [defaultLayoutId], references: [id], onDelete: Restrict)
+  names           BlogCategoryName[]
+  posts           BlogPost[]
+  translations    BlogPostTranslation[]
+
+  @@unique([siteId, key])
+  @@map("blog_categories")
+}
+
+model BlogCategoryName {
+  categoryId String       @map("category_id")
+  locale     String
+  name       String
+  category   BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, locale])
+  @@map("blog_category_names")
+}
+
+model BlogTag {
+  id        String        @id @default(cuid())
+  siteId    String        @map("site_id")
+  key       String
+  sortOrder Int           @default(0) @map("sort_order")
+  site      Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  names     BlogTagName[]
+  posts     BlogPostTag[]
+
+  @@unique([siteId, key])
+  @@map("blog_tags")
+}
+
+model BlogTagName {
+  tagId  String  @map("tag_id")
+  locale String
+  name   String
+  tag    BlogTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([tagId, locale])
+  @@map("blog_tag_names")
+}
+
+model BlogPost {
+  id           String                @id @default(cuid())
+  siteId       String                @map("site_id")
+  key          String
+  categoryId   String                @map("category_id")
+  layoutId     String?               @map("layout_id")
+  publishedAt  DateTime?             @map("published_at") @db.Date
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  site         Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  category     BlogCategory          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  layout       Layout?               @relation(fields: [layoutId], references: [id], onDelete: Restrict)
+  tags         BlogPostTag[]
+  translations BlogPostTranslation[]
+
+  @@unique([siteId, key])
+  @@map("blog_posts")
+}
+
+model BlogPostTag {
+  postId String   @map("post_id")
+  tagId  String   @map("tag_id")
+  post   BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    BlogTag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@map("blog_post_tags")
+}
+
+model BlogPostTranslation {
+  id              String                @id @default(cuid())
+  postId          String                @map("post_id")
+  categoryId      String                @map("category_id")
+  locale          String
+  status          BlogTranslationStatus @default(draft)
+  slug            String
+  title           String
+  excerpt         String                @default("")
+  body            String                @default("")
+  coverImage      String                @default("") @map("cover_image")
+  metaTitle       String                @default("") @map("meta_title")
+  metaDescription String                @default("") @map("meta_description")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  post            BlogPost              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  category        BlogCategory          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, locale])
+  @@unique([categoryId, locale, slug])
+  @@map("blog_post_translations")
 }
 
 model Content {

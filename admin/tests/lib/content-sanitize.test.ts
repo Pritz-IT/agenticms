@@ -90,6 +90,12 @@ describe("safeImageUrl", () => {
 });
 
 describe("sanitizeContentValue", () => {
+  it("preserves bloglist JSON text verbatim", () => {
+    const value = '  {"categories":["<news>"],"pageSize":12}  ';
+    expect(sanitizeContentValue(value, "bloglist")).toBe(value);
+    expect(sanitizeContentValue("", "bloglist")).toBe("");
+  });
+
   it("dispatches by type", () => {
     expect(sanitizeContentValue("<p>x</p><script>y</script>", "richtext")).toBe("<p>x</p>");
     expect(sanitizeContentValue("javascript:alert(1)", "link")).toBe("");

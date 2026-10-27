@@ -3,12 +3,12 @@ import { performance } from "perf_hooks";
 import { relative } from "path";
 import chokidar, { type FSWatcher } from "chokidar";
 import type { PrismaClient, Site } from "@prisma/client";
-import { parseLayoutKeys, extractLayoutName, type LayoutKeys } from "./layout-parser.js";
+import { parseLayoutKeys, parseLayoutKind, extractLayoutName, type LayoutKeys } from "./layout-parser.js";
 import { compileLayout } from "./layout-compiler.js";
 import type { LayoutModuleCache } from "./layout-module-cache.js";
 import { log } from "../logging.js";
 
-const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page"]);
+const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 const LEGACY_LAYOUT_PREFIX = "/layouts/";
 const DEFAULT_SITE_KEY = "demo";
 
@@ -60,8 +60,10 @@ async function upsertCanonicalLayout(
   filePath: string,
   name: string,
   detectedKeys: LayoutKeys,
+  source: string,
   extraLegacyFilePaths: string[] = []
 ) {
+  const kind = parseLayoutKind(source);
   const legacyFilePaths = legacyLayoutFilePaths(filePath, extraLegacyFilePaths);
   const basename = filePath.replace(/\\/g, "/").split("/").at(-1);
   const [canonicalLayout, explicitLegacyLayouts, basenameLegacyLayouts] = await Promise.all([
@@ -91,7 +93,7 @@ async function upsertCanonicalLayout(
       }
       const updated = await tx.layout.update({
         where: { id: canonicalLayout.id },
-        data: { name, detectedKeys: detectedKeys as any },
+        data: { name, kind, detectedKeys: detectedKeys as any },
       });
       for (const staleLayout of legacyLayouts) {
         await tx.layout.delete({ where: { id: staleLayout.id } });
@@ -104,7 +106,7 @@ async function upsertCanonicalLayout(
   if (canonicalLayout) {
     const layout = await prisma.layout.update({
       where: { id: canonicalLayout.id },
-      data: { name, detectedKeys: detectedKeys as any },
+      data: { name, kind, detectedKeys: detectedKeys as any },
     });
     return { layout, mode: "update" as const, evictedLayoutIds: [] };
   }
@@ -120,7 +122,7 @@ async function upsertCanonicalLayout(
       }
       const updated = await tx.layout.update({
         where: { id: primaryLayout.id },
-        data: { name, filePath, detectedKeys: detectedKeys as any },
+        data: { name, kind, filePath, detectedKeys: detectedKeys as any },
       });
       for (const staleLayout of staleLayouts) {
         await tx.layout.delete({ where: { id: staleLayout.id } });
@@ -131,7 +133,7 @@ async function upsertCanonicalLayout(
   }
 
   const layout = await prisma.layout.create({
-    data: { siteId, name, filePath, detectedKeys: detectedKeys as any },
+    data: { siteId, name, kind, filePath, detectedKeys: detectedKeys as any },
   });
   return { layout, mode: "create" as const, evictedLayoutIds: [] };
 }
@@ -199,6 +201,7 @@ export async function handleFile(
     storedFilePath,
     name,
     detectedKeys,
+    content,
     options.staleFilePaths
   );
   if (moduleCache) {

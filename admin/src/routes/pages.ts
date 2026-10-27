@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Prisma } from "@prisma/client";
 import { requireSite } from "../services/sites.js";
 
-const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page"]);
+const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 const DEFAULT_SITE_KEY = "demo";
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
@@ -109,7 +109,7 @@ export async function createPageForSite(
                   key,
                   locale: locale.code,
                   value: keyDef.initial ?? "",
-                  type: keyDef.type as "text" | "richtext" | "image" | "link" | "page",
+                  type: keyDef.type as "text" | "richtext" | "image" | "link" | "page" | "bloglist",
                 },
                 update: {},
               });

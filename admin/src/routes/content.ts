@@ -3,14 +3,14 @@ import { requireSite } from "../services/sites.js";
 import { sanitizeContentValue } from "../lib/content-sanitize.js";
 
 const DEFAULT_SITE_KEY = "demo";
-const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page"]);
+const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
 
 interface CreateContentBody {
   pageId: string;
   key: string;
   locale: string;
   value: string;
-  type: "text" | "richtext" | "image" | "link" | "page";
+  type: "text" | "richtext" | "image" | "link" | "page" | "bloglist";
 }
 
 interface UpdateContentBody {
@@ -21,7 +21,7 @@ interface UpsertPageContentBody {
   key: string;
   locale: string;
   value: string;
-  type?: "text" | "richtext" | "image" | "link" | "page";
+  type?: "text" | "richtext" | "image" | "link" | "page" | "bloglist";
 }
 
 async function getDefaultSiteId(app: FastifyInstance): Promise<string> {
