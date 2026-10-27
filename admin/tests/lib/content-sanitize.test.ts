@@ -66,6 +66,18 @@ describe("rich text loss checks", () => {
     );
   });
 
+  it("reports exactly one loss when one of two identical elements is removed", () => {
+    expect(findSanitizerLoss("<p>same</p><p>same</p>", "<p>same</p>")).toEqual([{ element: "p" }]);
+  });
+
+  it("reports no loss for unchanged input", () => {
+    expect(findSanitizerLoss("<p>unchanged</p>", "<p>unchanged</p>")).toEqual([]);
+  });
+
+  it("ignores html and body document wrappers", () => {
+    expect(findSanitizerLoss("<html><body><p>kept</p></body></html>", "<p>kept</p>")).toEqual([]);
+  });
+
   it("finds images with missing or blank alt text", () => {
     expect(findImagesWithoutAlt('<img src="/media/a.png"><img src="/assets/b.png" alt=" "><img src="/assets/c.png" alt="c">')).toEqual([
       "/media/a.png",

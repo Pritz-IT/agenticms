@@ -1,5 +1,6 @@
 import sanitizeHtml from "sanitize-html";
-import { parseDocument, type ChildNode } from "htmlparser2";
+import { parseDocument } from "htmlparser2";
+import type { ChildNode } from "domhandler";
 
 /**
  * Server-side sanitisation of CMS content at the WRITE boundary.
