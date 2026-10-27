@@ -86,8 +86,43 @@ cd admin && npm test
 cd admin/frontend && npm run build
 cd cli && npm test
 cd website && npm test
+cd website && npm run test:nginx # Docker smoke test for static serving
 docker compose config
 ```
+
+## Deployment
+
+The Compose setup persists these host directories alongside the compose file:
+
+- `./layouts:/layouts`: CMS-managed layouts, mounted in the admin.
+- `./assets:/assets`: public asset library, writable by the admin and read-only
+  in the website container.
+- `./post-media:/post-media`: private post uploads, mounted only in the admin
+  with `POST_MEDIA_DIR=/post-media`. The website serves published build copies
+  under `/media/<post>/<file>`, never the private upload directory or an
+  `/assets/<post>/<file>` alias.
+
+The `builds` volume holds generated sites shared by the admin and website;
+`pgdata` persists PostgreSQL. Include these volumes and host directories in backups.
+
+### Paginated overviews
+
+Public pagination URLs use `?page=N`, for example `/news?page=2`. Page 1 is built
+at `news/index.html`; later pages are pre-built at `news/__page/N/index.html`,
+including locale prefixes such as `en/news/__page/2/index.html`.
+
+The shipped nginx template maps these query URLs to the pre-built files on both
+production and staging, recognizing paginated overviews by their `__page`
+directory. On these overviews, `?page=1` redirects (301) to the
+same path without the query string. Invalid numbers (including zero and leading
+zeros) and pages beyond the last return 404. Other query parameters do not change
+the selected page. Plain pages ignore `page` entirely. Direct requests to a
+`__page` path segment return 404 at any depth.
+
+Other web servers or CDNs must reproduce this query-to-file mapping and block
+direct `__page` access; otherwise pages 2+ are unreachable through their public
+URLs. CDN cache keys must distinguish the `page` value. `astro dev` serves page 1;
+the visual editor handles pagination in its own preview without nginx.
 
 ## CLI Workflow
 

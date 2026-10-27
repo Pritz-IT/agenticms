@@ -201,4 +201,37 @@ assert.ok(
   "the product template must not hard-code an operator-specific admin host gate"
 );
 
+assertEveryBlockIncludes("map $arg_page $page_num", 1, [
+  'default invalid;',
+  '"" "";',
+  '~^[1-9][0-9]*$ $arg_page;',
+]);
+
+const siteServers = blocksFor("server {").filter((block) => block.includes("root $site_root;"));
+assert.equal(siteServers.length, 2);
+for (const server of siteServers) {
+  assert.ok(server.includes('set $pagination_page "";\n        if (-d $document_root$uri/__page) {\n            set $pagination_page $page_num;\n        }'),
+    "both site servers must restrict pagination to overview directories at server scope");
+  assert.ok(server.includes("location ~ (^|/)__page(/|$) {\n            internal;"),
+    "both site servers must block direct access to __page at any depth");
+  assert.ok(server.indexOf("location ~ (^|/)__page(/|$)") < server.indexOf("location ~ ^/api/"),
+    "the reserved segment must take precedence over API and asset regex locations");
+}
+
+const siteLocations = blocksFor("location / {").filter((block) => block.includes("zone=static"));
+assert.equal(siteLocations.length, 2);
+assert.equal(
+  siteLocations[0].replace("burst=40", "burst=10"), siteLocations[1],
+  "production and staging routing must stay identical, retaining their existing rate limits"
+);
+for (const location of siteLocations) {
+  assert.ok(location.includes('if ($pagination_page = 1) { return 301 $uri; }'));
+  assert.ok(location.includes('try_files $uri/__page/$pagination_page/index.html @plain;'));
+}
+assertEveryBlockIncludes("location @plain", 2, [
+  'if ($pagination_page != "") { return 404; }',
+  'try_files $uri/index.html $uri $uri/ =404;',
+]);
+assert.equal(blocksFor("location @plain")[0], blocksFor("location @plain")[1]);
+
 console.log("nginx-security-hardening tests passed");

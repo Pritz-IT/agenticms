@@ -50,6 +50,12 @@ __SITE_HOST_MAP__
         8080 staging;
     }
 
+    map $arg_page $page_num {
+        default invalid;
+        "" "";
+        ~^[1-9][0-9]*$ $arg_page;
+    }
+
     # Admin host, proxied instead of serving static site output.
     server {
         listen 80;
@@ -130,7 +136,17 @@ __SITE_HOST_MAP__
         set $site_root /var/www/builds/$site_key/current-$build_target;
         root $site_root;
         index index.html;
+
+        # Set at server scope: a location-level set inside if would skip try_files.
+        set $pagination_page "";
+        if (-d $document_root$uri/__page) {
+            set $pagination_page $page_num;
+        }
         limit_conn perip 20;
+
+        location ~ (^|/)__page(/|$) {
+            internal;
+        }
 
         location ~ ^/api/auth/ {
             limit_req zone=auth burst=5 nodelay;
@@ -223,6 +239,12 @@ __SITE_HOST_MAP__
 
         location / {
             limit_req zone=static burst=40 nodelay;
+            if ($pagination_page = 1) { return 301 $uri; }
+            try_files $uri/__page/$pagination_page/index.html @plain;
+        }
+
+        location @plain {
+            if ($pagination_page != "") { return 404; }
             try_files $uri/index.html $uri $uri/ =404;
         }
 
@@ -236,10 +258,20 @@ __SITE_HOST_MAP__
         set $site_root /var/www/builds/$site_key/current-$build_target;
         root $site_root;
         index index.html;
+
+        # Set at server scope: a location-level set inside if would skip try_files.
+        set $pagination_page "";
+        if (-d $document_root$uri/__page) {
+            set $pagination_page $page_num;
+        }
         limit_conn perip 20;
 
         auth_basic "Staging Preview";
         auth_basic_user_file /var/www/builds/$site_key/.htpasswd-staging;
+
+        location ~ (^|/)__page(/|$) {
+            internal;
+        }
 
         location ~ ^/api/auth/ {
             limit_req zone=auth burst=5 nodelay;
@@ -332,6 +364,12 @@ __SITE_HOST_MAP__
 
         location / {
             limit_req zone=static burst=10 nodelay;
+            if ($pagination_page = 1) { return 301 $uri; }
+            try_files $uri/__page/$pagination_page/index.html @plain;
+        }
+
+        location @plain {
+            if ($pagination_page != "") { return 404; }
             try_files $uri/index.html $uri $uri/ =404;
         }
 
