@@ -1,6 +1,8 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { requireSite } from "../services/sites.js";
 import { sanitizeContentValue } from "../lib/content-sanitize.js";
+import { BlogListFilterError, blogListDefaults, parseBlogListFilter } from "../services/blog/bloglist.js";
+import { lockSiteRoutes } from "../services/blog/route-lock.js";
 
 const DEFAULT_SITE_KEY = "demo";
 const CONTENT_TYPES = new Set(["text", "richtext", "image", "link", "page", "bloglist"]);
@@ -38,6 +40,57 @@ async function findContentForSite(app: FastifyInstance, siteId: string, id: stri
   return app.prisma.content.findFirst({
     where: { id, page: { siteId } },
   });
+}
+
+async function saveContent(
+  app: FastifyInstance, siteId: string, input: CreateContentBody,
+  logger: FastifyBaseLogger, mode: "create" | "upsert" | "update", id?: string,
+) {
+  const { pageId, key, type, value } = input;
+  const context = { op: "content.write", siteId, pageId, key, locale: input.locale, type };
+  logger.info(context, "content.write requested");
+  try {
+    const result = await app.prisma.$transaction(async (tx) => {
+      await lockSiteRoutes(tx, siteId);
+      if (!CONTENT_TYPES.has(type)) throw Object.assign(new Error("Unsupported content type"), { statusCode: 400 });
+      const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { defaultLocale: true } });
+      const page = await tx.page.findFirst({ where: { id: pageId, siteId }, include: { layout: true } });
+      if (!page) throw Object.assign(new Error("Page not found"), { statusCode: 404 });
+      const locale = type === "bloglist" ? site.defaultLocale : input.locale;
+      if (type === "bloglist") {
+        const filter = parseBlogListFilter(value);
+        const categories = await tx.blogCategory.findMany({ where: { siteId, key: { in: filter.categories } }, select: { key: true } });
+        const tags = await tx.blogTag.findMany({ where: { siteId, key: { in: filter.tags } }, select: { key: true } });
+        if (filter.categories.some((key) => !categories.some((category) => category.key === key))) throw new BlogListFilterError("Unknown category key for this site");
+        if (filter.tags.some((key) => !tags.some((tag) => tag.key === key))) throw new BlogListFilterError("Unknown tag key for this site");
+        if (filter.pageSize !== null) {
+          const lists = new Map(Object.entries(blogListDefaults(page.layout?.detectedKeys)));
+          const contents = await tx.content.findMany({ where: { pageId, locale: site.defaultLocale, type: "bloglist" } });
+          for (const content of contents) lists.set(content.key, content.value);
+          for (const [otherKey, otherValue] of lists) {
+            if (otherKey !== key && parseBlogListFilter(otherValue).pageSize !== null) throw new BlogListFilterError(`Only one bloglist per page can be paginated (${otherKey})`);
+          }
+        }
+      }
+      const where = { pageId_key_locale: { pageId, key, locale } };
+      const existing = await tx.content.findUnique({ where });
+      if (mode === "create" && type !== "bloglist" && existing) throw Object.assign(new Error("Content entry already exists for this page, key, and locale"), { statusCode: 409 });
+      const safeValue = sanitizeContentValue(value, type);
+      if (existing?.value === safeValue && existing.type === type) return { content: existing, changed: false };
+      const content = mode === "update" && type !== "bloglist"
+        ? await tx.content.update({ where: { id }, data: { value: safeValue } })
+        : await tx.content.upsert({ where, create: { pageId, key, locale, value: safeValue, type }, update: { value: safeValue, type } });
+      return { content, changed: true };
+    }, { timeout: 15000 });
+    logger.info({ ...context, contentId: result.content.id, locale: result.content.locale }, result.changed ? "content.write done" : "content.write NO-OP — unchanged");
+    return result.content;
+  } catch (error) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode && statusCode < 500) logger.warn({ ...context, err: error }, "content.write rejected");
+    else logger.error({ ...context, err: error }, "content.write failed");
+    logger.info(context, "content.write NO-OP — transaction rolled back");
+    throw error;
+  }
 }
 
 export async function registerSiteContentRoutes(app: FastifyInstance) {
@@ -81,12 +134,7 @@ export async function registerSiteContentRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Unsupported content type" });
       }
 
-      const safeValue = sanitizeContentValue(value, type);
-      const content = await app.prisma.content.upsert({
-        where: { pageId_key_locale: { pageId: page.id, key, locale } },
-        create: { pageId: page.id, key, locale, value: safeValue, type },
-        update: { value: safeValue, type },
-      });
+      const content = await saveContent(app, site.id, { pageId: page.id, key, locale, value, type }, request.log, "upsert");
 
       return reply.send(content);
     }
@@ -120,10 +168,7 @@ export async function registerSiteContentRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "value is required" });
       }
 
-      const content = await app.prisma.content.update({
-        where: { id: request.params.id },
-        data: { value: sanitizeContentValue(value, existing.type) },
-      });
+      const content = await saveContent(app, site.id, { ...existing, value }, request.log, "update", existing.id);
       return reply.send(content);
     }
   );
@@ -213,27 +258,13 @@ export default async function contentRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "pageId, key, locale, value, and type are required" });
     }
 
-    request.log.info({ op: "content.write", pageId, key, locale, type }, "content.write requested");
-
     const siteId = await getDefaultSiteId(app);
     const page = await findPageForSite(app, siteId, pageId);
     if (!page) {
       return reply.status(404).send({ error: "Page not found" });
     }
 
-    const existing = await app.prisma.content.findUnique({
-      where: { pageId_key_locale: { pageId, key, locale } },
-    });
-
-    if (existing) {
-      return reply.status(409).send({ error: "Content entry already exists for this page, key, and locale" });
-    }
-
-    const content = await app.prisma.content.create({
-      data: { pageId, key, locale, value: sanitizeContentValue(value, type), type },
-    });
-
-    request.log.info({ op: "content.write", contentId: content.id, pageId, key, locale }, "content.write done");
+    const content = await saveContent(app, siteId, { pageId, key, locale, value, type }, request.log, "create");
     return reply.status(201).send(content);
   });
 
@@ -246,8 +277,6 @@ export default async function contentRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "value is required" });
     }
 
-    request.log.info({ op: "content.write", contentId: id }, "content.write requested");
-
     const siteId = await getDefaultSiteId(app);
     const existing = await findContentForSite(app, siteId, id);
     if (!existing) {
@@ -255,12 +284,7 @@ export default async function contentRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: "Content entry not found" });
     }
 
-    const content = await app.prisma.content.update({
-      where: { id },
-      data: { value: sanitizeContentValue(value, existing.type) },
-    });
-
-    request.log.info({ op: "content.write", contentId: id }, "content.write done");
+    const content = await saveContent(app, siteId, { ...existing, value }, request.log, "update", id);
     return reply.send(content);
   });
 

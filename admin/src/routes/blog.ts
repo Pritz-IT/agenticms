@@ -9,9 +9,52 @@ import { sendRouteCollision } from "./route-collision.js";
 import { deletePost, getPost, listPosts, PostError, type PostInput, savePost, setPostTranslationStatus } from "../services/blog/posts.js";
 import { detectImageType, PostMediaError, postMediaDiskPath, storePostMedia } from "../services/blog/post-media.js";
 
+import { BlogListFilterError, blogListDefaults, parseBlogListFilter, resolveBlogList, type BlogList } from "../services/blog/bloglist.js";
+import { loadBlogPostViews } from "../services/blog/views.js";
+import { paginate } from "../services/blog/pagination.js";
+import { pageRouteSlug, slugToUrlPath } from "../services/blog/urls.js";
+
 export async function registerSiteBlogRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
   app.addHook("onRequest", app.authenticate);
+
+  app.get<{ Params: { siteKey: string; pageId: string }; Querystring: { locale?: string; page?: string } }>("/:siteKey/pages/:pageId/blog-lists", async (request, reply) => {
+    const site = await requireSite(app, request.params.siteKey);
+    const page = await app.prisma.page.findFirst({ where: { id: request.params.pageId, siteId: site.id }, include: { layout: true } });
+    if (!page) return reply.status(404).send({ error: "Page not found" });
+    const locale = request.query.locale ?? site.defaultLocale;
+    if (typeof locale !== "string" || !await app.prisma.locale.findUnique({ where: { siteId_code: { siteId: site.id, code: locale } } })) {
+      return reply.status(400).send({ error: "Locale is not configured for this site" });
+    }
+    const pageParam = request.query.page ?? "1";
+    if (typeof pageParam !== "string" || !/^[1-9]\d*$/.test(pageParam) || !Number.isSafeInteger(Number(pageParam))) {
+      return reply.status(400).send({ error: "page must be a positive integer" });
+    }
+    try {
+      const contents = await app.prisma.content.findMany({ where: { pageId: page.id, locale: site.defaultLocale } });
+      const posts = await loadBlogPostViews(app.prisma, site.id, "staging");
+      const basePath = slugToUrlPath(pageRouteSlug(page.path, locale, site.defaultLocale));
+      const lists: Record<string, BlogList> = {};
+      for (const [key, initial] of Object.entries(blogListDefaults(page.layout?.detectedKeys))) {
+        const filter = parseBlogListFilter(contents.find((content) => content.key === key)?.value ?? initial);
+        const matched = resolveBlogList(posts, filter, locale)
+          .map(({ body, metaTitle, metaDescription, translations, ...summary }) => summary);
+        if (filter.pageSize === null) lists[key] = { posts: matched, pagination: null };
+        else {
+          const result = paginate(matched, filter.pageSize, Number(pageParam), basePath);
+          lists[key] = { posts: result.items, pagination: result.pagination };
+        }
+      }
+      return reply.send(lists);
+    } catch (error) {
+      if (error instanceof BlogListFilterError || error instanceof RangeError) {
+        request.log.warn({ op: "blog.preview", siteId: site.id, pageId: page.id, err: error }, "blog preview rejected");
+        return reply.status(error instanceof BlogListFilterError ? 400 : 404).send({ error: error.message });
+      }
+      request.log.error({ op: "blog.preview", siteId: site.id, pageId: page.id, err: error }, "blog preview failed");
+      throw error;
+    }
+  });
 
   app.get<{ Params: { siteKey: string; "*": string } }>("/:siteKey/blog/media/*", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
