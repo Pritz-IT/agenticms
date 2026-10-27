@@ -7,6 +7,7 @@ import {
   buildRobotsTxt,
 } from "../src/lib/routes.ts";
 import type { Page, SiteConfig } from "../src/lib/site-config-types.ts";
+import { blogConfig } from "./fixtures/blog-config.ts";
 
 // pageSlug
 assert.equal(pageSlug("/", "de", "de"), undefined);
@@ -112,12 +113,27 @@ function makeConfig(pages: Page[], siteUrl: string | null): SiteConfig {
   assert.ok(xml.trimEnd().endsWith("</urlset>"));
 }
 
+// Blog URLs use the supplied translated URL; pagination uses the public query URL.
+{
+  const config = blogConfig();
+  const urls = buildSitemapUrls(config, "de");
+  assert.deepEqual(urls, [
+    "https://x/news/", "https://x/news?page=2", "https://x/news?page=3", "https://x/en/news/",
+    ...config.posts.map((post) => `https://x${post.url}`),
+  ]);
+  assert.ok(!urls.some((url) => url.includes("__page")));
+  config.pages[0].layout!.detectedKeys["_meta.canonical"] = { type: "text", initial: "https://other.example.com/" };
+  assert.deepEqual(buildSitemapUrls(config, "de"), urls.filter((url) => !["https://x/news/", "https://x/en/news/"].includes(url)));
+}
+
 // buildRobotsTxt
 assert.equal(
-  buildRobotsTxt("https://example.com/"),
+  buildRobotsTxt("https://example.com/", "production"),
   "User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n"
 );
-assert.equal(buildRobotsTxt(null), "User-agent: *\nAllow: /\n");
-assert.equal(buildRobotsTxt(undefined), "User-agent: *\nAllow: /\n");
+assert.equal(buildRobotsTxt(null, "production"), "User-agent: *\nAllow: /\n");
+assert.equal(buildRobotsTxt(undefined, "production"), "User-agent: *\nAllow: /\n");
+assert.equal(buildRobotsTxt("https://x", "staging"), "User-agent: *\nDisallow: /\n");
+assert.equal(buildRobotsTxt(null, "staging"), "User-agent: *\nDisallow: /\n");
 
 console.log("routes.test.ts passed");

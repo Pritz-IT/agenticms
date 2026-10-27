@@ -1,5 +1,6 @@
 import type { SiteConfig } from "./site-config-types";
 import { resolveContent } from "./content";
+import { paginatedPageCount } from "./blog";
 
 /**
  * Builds the route slug for a page/locale combination.
@@ -25,6 +26,11 @@ export function slugToUrlPath(slug: string | undefined): string {
   return slug ? `/${slug}/` : "/";
 }
 
+/** Public pagination URL; __page paths are build output only. */
+export function pageUrlPath(slug: string | undefined, pageNumber: number): string {
+  return pageNumber === 1 ? slugToUrlPath(slug) : `${slug ? `/${slug}` : "/"}?page=${pageNumber}`;
+}
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -33,8 +39,8 @@ function escapeXml(value: string): string {
 }
 
 /**
- * Collects the absolute URLs of all indexable pages: published pages only,
- * excluding pages whose _meta.canonical points somewhere else.
+ * Collects published pages, their self-canonical pagination URLs and supplied post URLs.
+ * Page one is excluded when its _meta.canonical points somewhere else.
  * Returns [] when settings.siteUrl is not configured.
  */
 export function buildSitemapUrls(config: SiteConfig, defaultLocale: string): string[] {
@@ -49,15 +55,20 @@ export function buildSitemapUrls(config: SiteConfig, defaultLocale: string): str
       continue;
     }
     for (const locale of config.locales) {
-      const loc = base + slugToUrlPath(pageSlug(page.path, locale.code, defaultLocale));
+      const slug = pageSlug(page.path, locale.code, defaultLocale);
+      const loc = base + pageUrlPath(slug, 1);
       const content = resolveContent(page, locale.code, defaultLocale);
       const canonicalOverride = content["_meta.canonical"];
-      if (canonicalOverride && canonicalOverride !== loc) {
-        continue;
+      if (!canonicalOverride || canonicalOverride === loc) {
+        urls.push(loc);
       }
-      urls.push(loc);
+      const total = paginatedPageCount(config, page, locale.code);
+      for (let pageNumber = 2; pageNumber <= total; pageNumber++) {
+        urls.push(base + pageUrlPath(slug, pageNumber));
+      }
     }
   }
+  urls.push(...config.posts.map((post) => base + post.url));
   return urls;
 }
 
@@ -72,7 +83,8 @@ export function buildSitemapXml(urls: string[]): string {
   ].join("\n");
 }
 
-export function buildRobotsTxt(siteUrl: string | null | undefined): string {
+export function buildRobotsTxt(siteUrl: string | null | undefined, buildTarget: SiteConfig["buildTarget"]): string {
+  if (buildTarget === "staging") return "User-agent: *\nDisallow: /\n";
   const base = (siteUrl ?? "").replace(/\/+$/, "");
   const lines = ["User-agent: *", "Allow: /"];
   if (base) {

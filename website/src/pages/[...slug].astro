@@ -1,48 +1,25 @@
 ---
 import { getConfig, getDefaultLocale } from "../lib/config";
-import { resolveContent } from "../lib/content";
-import { pageSlug } from "../lib/routes";
-import type { Page, Navigation } from "../lib/site-config-types";
+import { pageSlug, pageUrlPath } from "../lib/routes";
+import { buildStaticPaths, type StaticPath } from "../lib/static-paths";
+import { pageTitleSuffix } from "../lib/blog";
+import type { Navigation } from "../lib/site-config-types";
 
-export async function getStaticPaths() {
-  const siteConfig = getConfig();
-  const defaultLocale = getDefaultLocale();
-  const { pages, locales, navigation } = siteConfig;
+type Props = StaticPath["props"];
 
-  const paths: Array<{
-    params: { slug: string | undefined };
-    props: {
-      page: Page;
-      locale: string;
-      content: Record<string, string>;
-      config: typeof siteConfig;
-      layoutFilePath: string | null;
-    };
-  }> = [];
-
-  for (const page of pages) {
-    for (const locale of locales) {
-      const slug = pageSlug(page.path, locale.code, defaultLocale);
-      const content = resolveContent(page, locale.code, defaultLocale);
-      const layoutFilePath = page.layout?.filePath ?? null;
-
-      paths.push({
-        params: { slug },
-        props: {
-          page,
-          locale: locale.code,
-          content,
-          config: siteConfig,
-          layoutFilePath,
-        },
-      });
-    }
-  }
-
-  return paths;
+export function getStaticPaths() {
+  return buildStaticPaths(getConfig(), getDefaultLocale());
 }
 
-const { page, locale, content, config, layoutFilePath } = Astro.props;
+const props = Astro.props;
+const { locale } = props;
+const config = getConfig();
+const layoutFilePath = props.kind === "post" ? props.post.layoutFilePath : props.page.layout?.filePath ?? null;
+const content = props.kind === "page" ? props.content : Object.fromEntries(
+  Object.entries(config.layouts.find((layout) => layout.filePath === layoutFilePath)?.detectedKeys ?? {})
+    .map(([key, value]) => [key, value.initial])
+);
+const blogLists = props.kind === "page" ? props.blogLists : {};
 
 // Dynamic layout import
 const layoutModules = import.meta.glob("../layouts/**/*.tsx", { eager: true }) as Record<
@@ -61,19 +38,25 @@ if (layoutFilePath) {
   }
 }
 
-const metaTitle = (content["_meta.title"] as string | undefined) ?? config.settings?.name ?? "";
-const metaDescription = (content["_meta.description"] as string | undefined) ?? "";
-const favicon = content["_meta.favicon"] as string | undefined;
+const metaTitle = props.kind === "post"
+  ? props.post.metaTitle ?? props.post.title
+  : (content["_meta.title"] ?? config.settings?.name ?? "") + pageTitleSuffix(locale, props.pageNumber);
+const metaDescription = props.kind === "post"
+  ? props.post.metaDescription ?? props.post.excerpt
+  : content["_meta.description"] ?? "";
+const favicon = content["_meta.favicon"];
 
 const base = (config.settings?.siteUrl ?? "").replace(/\/+$/, "");
-const rawImg = (content["_meta.image"] as string | undefined) ?? "";
+const rawImg = props.kind === "post" ? props.post.coverImage : content["_meta.image"] ?? "";
 const ogImage = rawImg ? (/^https?:\/\//i.test(rawImg) ? rawImg : base + rawImg) : "";
-const canonical =
-  (content["_meta.canonical"] as string | undefined) ||
-  (base ? base + Astro.url.pathname : "");
+const canonical = props.kind === "post"
+  ? (base ? base + props.post.url : "")
+  : props.pageNumber >= 2
+    ? (base ? base + pageUrlPath(pageSlug(props.page.path, locale, getDefaultLocale()), props.pageNumber) : "")
+    : content["_meta.canonical"] || (base ? base + Astro.url.pathname : "");
 const siteName = config.settings?.name ?? "";
 
-const isHomepage = page.path.replace(/^\//, "") === "";
+const isHomepage = props.kind === "page" && props.pageNumber === 1 && props.page.path.replace(/^\//, "") === "";
 const organizationJsonLd =
   isHomepage && siteName && base
     ? JSON.stringify({
@@ -92,6 +75,7 @@ const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale 
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{metaTitle}</title>
+    {config.buildTarget === "staging" && <meta name="robots" content="noindex" />}
     {metaDescription && <meta name="description" content={metaDescription} />}
     {favicon && <link rel="shortcut icon" href={favicon} />}
     {canonical && <link rel="canonical" href={canonical} />}
@@ -118,7 +102,9 @@ const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale 
   <body>
     {LayoutComponent ? (
       <LayoutComponent
+        {...(props.kind === "post" ? { post: props.post } : {})}
         content={content}
+        blogLists={blogLists}
         navigation={filteredNavigation}
         locale={locale}
         locales={config.locales}

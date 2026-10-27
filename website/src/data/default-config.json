@@ -1,4 +1,7 @@
 {
+  "buildTarget": "production",
+  "posts": [],
+  "blogLists": {},
   "settings": {
     "id": "default-site",
     "name": "AgentiCMS",
