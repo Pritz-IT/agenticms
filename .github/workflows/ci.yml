@@ -66,6 +66,9 @@ jobs:
           # admin/frontend (they import react/lucide-react), so those deps
           # must be installed before `npm test`.
           npm ci --prefix frontend
+          # The sanitizer parity test imports website/src/components/RichText.tsx,
+          # which needs the website tsconfig base (astro) and sanitize-html.
+          npm ci --prefix ../website
           npm run db:generate
           npm run build:tsc
           npm test
