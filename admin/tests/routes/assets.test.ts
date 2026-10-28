@@ -197,6 +197,64 @@ describe("POST /api/sites/:siteKey/assets/:id/convert-webp", () => {
     });
   });
 
+  it("rewrites the asset in rich-text content and blog post covers and bodies", async () => {
+    const siteAssetsDir = path.join(assetsDir, "demo");
+    await fs.mkdir(siteAssetsDir, { recursive: true });
+    const oldFilePath = "/assets/demo/post-cover.png";
+    const newFilePath = "/assets/demo/post-cover.webp";
+    await fs.writeFile(path.join(siteAssetsDir, "post-cover.png"), tinyPng);
+
+    const layout = await app.prisma.layout.create({
+      data: { siteId: demoSite.id, name: "Rich", filePath: "RichWebp.tsx", detectedKeys: {} },
+    });
+    const postLayout = await app.prisma.layout.create({
+      data: { siteId: demoSite.id, name: "Post", filePath: "PostWebp.tsx", detectedKeys: {}, kind: "post" },
+    });
+    const page = await app.prisma.page.create({ data: { siteId: demoSite.id, layoutId: layout.id, path: "/webp-rich" } });
+    const blogPage = await app.prisma.page.create({ data: { siteId: demoSite.id, layoutId: layout.id, path: "/webp-blog" } });
+    const richText = await app.prisma.content.create({
+      data: { pageId: page.id, key: "body", locale: "de", type: "richtext", value: `<p>Hi</p><img src="${oldFilePath}" alt="Cover">` },
+    });
+    const category = await app.prisma.blogCategory.create({
+      data: { siteId: demoSite.id, key: "webp-news", pageId: blogPage.id, defaultLayoutId: postLayout.id },
+    });
+    const post = await app.prisma.blogPost.create({
+      data: {
+        siteId: demoSite.id,
+        key: "webp-post",
+        categoryId: category.id,
+        translations: {
+          create: [
+            { categoryId: category.id, locale: "de", slug: "cover", title: "Cover", coverImage: oldFilePath, body: "<p>No image</p>" },
+            { categoryId: category.id, locale: "en", slug: "body", title: "Body", body: `<figure><img src="${oldFilePath}" alt="A"></figure><p>${oldFilePath} stays as text</p>` },
+            { categoryId: category.id, locale: "fr", slug: "other", title: "Other", coverImage: "/assets/demo/other.png", body: "<p>Untouched</p>" },
+          ],
+        },
+      },
+    });
+    const asset = await app.prisma.asset.create({
+      data: { siteId: demoSite.id, filename: "post-cover.png", mimeType: "image/png", filePath: oldFilePath, uploadedBy: "test" },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/sites/demo/assets/${asset.id}/convert-webp`,
+      headers: { authorization: `Bearer ${editorToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ contentUpdated: 1, postsUpdated: 2 });
+    await expect(app.prisma.content.findUniqueOrThrow({ where: { id: richText.id } })).resolves.toMatchObject({
+      value: `<p>Hi</p><img src="${newFilePath}" alt="Cover">`,
+    });
+    const translations = await app.prisma.blogPostTranslation.findMany({ where: { postId: post.id }, orderBy: { locale: "asc" } });
+    expect(translations.map(({ locale, coverImage, body }) => ({ locale, coverImage, body }))).toEqual([
+      { locale: "de", coverImage: newFilePath, body: "<p>No image</p>" },
+      { locale: "en", coverImage: "", body: `<figure><img src="${newFilePath}" alt="A"></figure><p>${oldFilePath} stays as text</p>` },
+      { locale: "fr", coverImage: "/assets/demo/other.png", body: "<p>Untouched</p>" },
+    ]);
+  });
+
   it("updates duplicate asset rows that point at the same converted file", async () => {
     const siteAssetsDir = path.join(assetsDir, "demo");
     await fs.mkdir(siteAssetsDir, { recursive: true });

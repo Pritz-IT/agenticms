@@ -17,6 +17,7 @@ export interface AssetWebpConversionResult {
   newFilePath: string;
   contentUpdated: number;
   layoutsUpdated: number;
+  postsUpdated: number;
 }
 
 export function fetchAssets(siteKey: string): Promise<Asset[]> {

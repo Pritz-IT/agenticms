@@ -72,8 +72,9 @@ export function AssetsPage() {
       qc.invalidateQueries({ queryKey: ["asset-library", siteKey] });
       qc.invalidateQueries({ queryKey: ["pages", siteKey] });
       qc.invalidateQueries({ queryKey: ["layouts", siteKey] });
+      qc.invalidateQueries({ queryKey: ["blog", siteKey, "posts"] });
       toast.success(`Converted ${result.asset.filename}`, {
-        description: `${result.contentUpdated} content ${result.contentUpdated === 1 ? "field" : "fields"} updated`,
+        description: `${result.contentUpdated} content ${result.contentUpdated === 1 ? "field" : "fields"} and ${result.postsUpdated} post ${result.postsUpdated === 1 ? "translation" : "translations"} updated`,
       });
     },
     onError: (err) => {

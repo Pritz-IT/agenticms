@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { prepareAssetUpload } from "./asset-image-conversion.js";
-import { rewriteAssetReferences } from "./asset-reference-rewrite.js";
+import { rewriteAssetReferences, rewriteHtmlAssetReference } from "./asset-reference-rewrite.js";
 
 const ASSET_PREFIX = "/assets/";
 const CONVERTIBLE_MIME_TYPES = new Set(["image/png", "image/jpeg"]);
@@ -20,6 +20,7 @@ export interface ExistingAssetWebpConversionResult {
   newFilePath: string;
   contentUpdated: number;
   layoutsUpdated: number;
+  postsUpdated: number;
 }
 
 function safeAssetRelativePath(filePath: string): string | null {
@@ -134,6 +135,37 @@ export async function convertExistingAssetToWebp(
         data: { value: newFilePath },
       });
 
+      let richTextUpdated = 0;
+      const richTextRows = await tx.content.findMany({
+        where: { type: "richtext", value: { contains: `="${asset.filePath}"` }, page: { siteId: site.id } },
+        select: { id: true, value: true },
+      });
+      for (const row of richTextRows) {
+        const rewritten = rewriteHtmlAssetReference(row.value, asset.filePath, newFilePath);
+        if (!rewritten.changed) continue;
+        await tx.content.update({ where: { id: row.id }, data: { value: rewritten.value } });
+        richTextUpdated += 1;
+      }
+
+      let postsUpdated = 0;
+      const translations = await tx.blogPostTranslation.findMany({
+        where: {
+          post: { siteId: site.id },
+          OR: [{ coverImage: asset.filePath }, { body: { contains: `="${asset.filePath}"` } }],
+        },
+        select: { id: true, coverImage: true, body: true },
+      });
+      for (const translation of translations) {
+        const body = rewriteHtmlAssetReference(translation.body, asset.filePath, newFilePath);
+        const coverChanged = translation.coverImage === asset.filePath;
+        if (!body.changed && !coverChanged) continue;
+        await tx.blogPostTranslation.update({
+          where: { id: translation.id },
+          data: { body: body.value, ...(coverChanged && { coverImage: newFilePath }) },
+        });
+        postsUpdated += 1;
+      }
+
       let layoutsUpdated = 0;
       const layouts = await tx.layout.findMany({
         where: { siteId: site.id },
@@ -165,8 +197,9 @@ export async function convertExistingAssetToWebp(
         asset: convertedAsset,
         oldFilePath: asset.filePath,
         newFilePath,
-        contentUpdated: contentUpdate.count,
+        contentUpdated: contentUpdate.count + richTextUpdated,
         layoutsUpdated,
+        postsUpdated,
       };
     });
   } catch (err) {

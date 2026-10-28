@@ -223,6 +223,10 @@ async function deleteLocaleForSite(app: FastifyInstance, siteId: string, id: str
       await lockSiteRoutes(tx, siteId);
       const existing = await tx.locale.findFirst({ where: { id, siteId } });
       if (!existing) return { status: 404, body: { error: "Locale not found" } };
+      const site = await tx.site.findUniqueOrThrow({ where: { id: siteId } });
+      if (existing.isDefault || site.defaultLocale === existing.code) {
+        return { status: 409, body: { error: `Locale ${existing.code} is the default locale; make another locale the default first` } };
+      }
       const posts = await tx.blogPost.findMany({
         where: { siteId, translations: { some: { locale: existing.code } } },
         select: { key: true },
@@ -237,7 +241,7 @@ async function deleteLocaleForSite(app: FastifyInstance, siteId: string, id: str
       assertNoRouteCollisions(await collectSiteRoutes(tx, siteId));
       return { status: 200, body: { ok: true } };
     }, { timeout: 15000 });
-    if (result.status === 409) request.log.warn(context, "locale.delete rejected — translations exist");
+    if (result.status === 409) request.log.warn({ ...context, reason: result.body.error }, "locale.delete rejected");
     request.log.info(context, result.status === 200 ? "locale.delete done" : "locale.delete NO-OP — refused or nothing matched");
     return reply.status(result.status).send(result.body);
   } catch (error) {

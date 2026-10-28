@@ -240,7 +240,15 @@ async function convertAssetToWebpForSite(
   id: string,
 ) {
   try {
+    request.log.info({ op: "asset.convertWebp", assetId: id, siteKey: site.key }, "asset.convertWebp requested");
     const result = await convertExistingAssetToWebp(app.prisma, config.ASSETS_DIR, site, id);
+    request.log.info(
+      {
+        op: "asset.convertWebp", assetId: id, siteKey: site.key, newFilePath: result.newFilePath,
+        contentUpdated: result.contentUpdated, layoutsUpdated: result.layoutsUpdated, postsUpdated: result.postsUpdated,
+      },
+      "asset.convertWebp done"
+    );
     return reply.send(result);
   } catch (err) {
     if (err instanceof AssetWebpConversionError) {

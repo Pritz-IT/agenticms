@@ -150,7 +150,7 @@ describe("GET /api/locales", () => {
 describe("DELETE /api/locales/:id", () => {
   it("removes a locale", async () => {
     const locale = await app.prisma.locale.create({
-      data: { siteId: defaultSiteId, code: "en", label: "English", sortOrder: 0 },
+      data: { siteId: defaultSiteId, code: "fr", label: "French", sortOrder: 0 },
     });
 
     const res = await app.inject({
@@ -164,6 +164,23 @@ describe("DELETE /api/locales/:id", () => {
 
     const remaining = await app.prisma.locale.findUnique({ where: { id: locale.id } });
     expect(remaining).toBeNull();
+  });
+
+  it.each([
+    ["flagged default", { code: "fr", isDefault: true }],
+    ["site default", { code: "en", isDefault: false }],
+  ])("refuses deleting the %s locale", async (_label, data) => {
+    const locale = await app.prisma.locale.create({ data: { siteId: defaultSiteId, label: "Default", ...data } });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/locales/${locale.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("default locale");
+    await expect(app.prisma.locale.findUnique({ where: { id: locale.id } })).resolves.not.toBeNull();
   });
 
   it("returns 404 for unknown locale id", async () => {

@@ -27,3 +27,9 @@ export function rewriteAssetReferences(value: unknown, replacements: Map<string,
 
   return { value, changed: false };
 }
+
+// Rich text is stored as sanitized HTML, which always double-quotes attribute values.
+export function rewriteHtmlAssetReference(html: string, oldPath: string, newPath: string): { value: string; changed: boolean } {
+  const parts = html.split(`="${oldPath}"`);
+  return parts.length === 1 ? { value: html, changed: false } : { value: parts.join(`="${newPath}"`), changed: true };
+}
