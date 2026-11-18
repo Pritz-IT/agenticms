@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { build, type Message } from "esbuild";
 import { readFile } from "fs/promises";
-import { resolve } from "path";
+import { dirname, join, resolve } from "path";
 
 export interface CompileErrorLocation {
   file?: string;
@@ -37,7 +37,7 @@ function unknownErrorToCompileError(err: unknown): CompileLayoutError {
   return { text: err instanceof Error ? err.message : String(err) };
 }
 
-async function computeInputHash(inputs: string[]): Promise<string> {
+export async function computeInputHash(inputs: string[]): Promise<string> {
   const hash = createHash("sha256");
   for (const input of [...inputs].sort()) {
     hash.update(input);
@@ -55,24 +55,53 @@ function sameInputs(left: string[], right: string[]): boolean {
   return a.every((value, index) => value === b[index]);
 }
 
-async function buildLayout(absLayoutPath: string): Promise<{ code: string; inputs: string[] }> {
+export type CompileMode = "browser" | "server";
+const SERVER_ENTRY = "<preview-entry>";
+
+// "browser": the visual editor module; React and the components stay external so
+// the SPA's live singletons are shared. "server": a self-contained Node bundle for
+// the blog post preview, resolved against the website project (its React, its
+// components, its document head) so it renders exactly what the static build does.
+function serverBuildOptions(absLayoutPath: string, astroProjectDir: string) {
+  const entry = [
+    `export { default as Layout } from ${JSON.stringify(absLayoutPath)};`,
+    `export { createElement } from "react";`,
+    `export { renderToString } from "react-dom/server";`,
+    `export { documentHeadHtml } from ${JSON.stringify(join(astroProjectDir, "src/lib/document-head.ts"))};`,
+  ].join("\n");
+  return {
+    stdin: { contents: entry, resolveDir: dirname(absLayoutPath), sourcefile: SERVER_ENTRY, loader: "ts" as const },
+    platform: "node" as const,
+    target: "node20",
+    nodePaths: [join(astroProjectDir, "node_modules")],
+    alias: { "@agenticms/components": join(astroProjectDir, "src/components/index.ts") },
+    // react-dom/server requires Node built-ins; an ESM bundle needs a real require.
+    banner: { js: "import{createRequire}from'module';const require=createRequire(import.meta.url);" },
+  };
+}
+
+async function buildLayout(absLayoutPath: string, mode: CompileMode, astroProjectDir: string): Promise<{ code: string; inputs: string[] }> {
   const result = await build({
-    entryPoints: [absLayoutPath],
     bundle: true,
     format: "esm",
     write: false,
     jsx: "automatic",
-    platform: "browser",
-    target: "es2020",
     metafile: true,
     logLevel: "silent",
-    external: [
-      "react",
-      "react-dom",
-      "react-dom/client",
-      "react/jsx-runtime",
-      "@agenticms/components",
-    ],
+    ...(mode === "server"
+      ? serverBuildOptions(absLayoutPath, astroProjectDir)
+      : {
+          entryPoints: [absLayoutPath],
+          platform: "browser" as const,
+          target: "es2020",
+          external: [
+            "react",
+            "react-dom",
+            "react-dom/client",
+            "react/jsx-runtime",
+            "@agenticms/components",
+          ],
+        }),
   });
 
   const output = result.outputFiles?.[0]?.text;
@@ -82,19 +111,21 @@ async function buildLayout(absLayoutPath: string): Promise<{ code: string; input
 
   return {
     code: output,
-    inputs: Object.keys(result.metafile?.inputs ?? {}).map((input) =>
-      resolve(process.cwd(), input)
-    ),
+    // ponytail: in server mode React lives in the website's node_modules, which only
+    // change with an image rebuild (= restart), so they stay out of the input hash.
+    inputs: Object.keys(result.metafile?.inputs ?? {})
+      .filter((input) => !input.endsWith(SERVER_ENTRY) && !(mode === "server" && input.includes("node_modules/")))
+      .map((input) => resolve(process.cwd(), input)),
   };
 }
 
-export async function compileLayout(absLayoutPath: string): Promise<CompileLayoutResult> {
+export async function compileLayout(absLayoutPath: string, mode: CompileMode = "browser", astroProjectDir = ""): Promise<CompileLayoutResult> {
   try {
     let previousInputs: string[] | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const beforeInputs = previousInputs;
       const beforeHash = beforeInputs ? await computeInputHash(beforeInputs) : null;
-      const built = await buildLayout(absLayoutPath);
+      const built = await buildLayout(absLayoutPath, mode, astroProjectDir);
       if (beforeInputs && !sameInputs(beforeInputs, built.inputs)) {
         previousInputs = built.inputs;
         continue;

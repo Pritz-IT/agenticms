@@ -1,8 +1,32 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { SiteConfig } from "./types.js";
 import { loadBlogPostViews } from "../blog/views.js";
 import { blogListDefaults, parsePageBlogListFilters, resolveBlogList } from "../blog/bloglist.js";
 import { collectSiteRoutes, assertNoRouteCollisions } from "../blog/route-lock.js";
+
+// Top-level navigation with two levels of children, as the static build renders it.
+// Shared with the blog post preview.
+export function loadSiteNavigation(prisma: Prisma.TransactionClient, siteId: string) {
+  return prisma.navigation.findMany({
+    include: {
+      targetPage: true,
+      children: {
+        where: { siteId },
+        include: {
+          targetPage: true,
+          children: {
+            where: { siteId },
+            include: { targetPage: true },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+    where: { siteId, parentId: null },
+    orderBy: { sortOrder: "asc" },
+  });
+}
 
 // Builds the SiteConfig used to drive an astro build. Previously this was
 // served over HTTP by `GET /api/config` and fetched by the Website container;
@@ -21,25 +45,7 @@ export async function buildSiteConfig(prisma: PrismaClient, siteKey: string, tar
       include: { layout: true, contents: true },
       orderBy: { sortOrder: "asc" },
     }),
-    prisma.navigation.findMany({
-      include: {
-        targetPage: true,
-        children: {
-          where: { siteId: site.id },
-          include: {
-            targetPage: true,
-            children: {
-              where: { siteId: site.id },
-              include: { targetPage: true },
-              orderBy: { sortOrder: "asc" },
-            },
-          },
-          orderBy: { sortOrder: "asc" },
-        },
-      },
-      where: { siteId: site.id, parentId: null },
-      orderBy: { sortOrder: "asc" },
-    }),
+    loadSiteNavigation(prisma, site.id),
     // stagingAccess intentionally includes passwordHash — written into
     // .htpasswd-{target} for nginx Basic Auth on staging.
     prisma.stagingAccess.findMany({ where: { siteId: site.id } }),

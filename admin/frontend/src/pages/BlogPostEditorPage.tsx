@@ -29,6 +29,7 @@ import { LocaleTabs } from "../components/LocaleTabs";
 import { RichTextEditor } from "../components/RichTextEditor";
 import { ImagePicker } from "../components/ImagePicker";
 import { BlogSelect } from "../components/blog/BlogSelect";
+import { BlogPostPreviewPane } from "../components/blog/BlogPostPreviewPane";
 import { blogErrorMessage, showBlogError } from "../lib/blog-error";
 import { emptyTranslation, establishedSlugs, postDraft, postSaveInput, stagingPostUrl, updateTranslationTitle } from "../lib/blog-editor";
 import { DEFAULT_SITE_KEY, siteSectionPath } from "../site-routing";
@@ -112,6 +113,7 @@ function PostEditor({
   const [saved, setSaved] = useState(post);
   const [draft, setDraft] = useState(() => postDraft(post));
   const [selectedLocale, setSelectedLocale] = useState(settings.defaultLocale);
+  const [livePreview, setLivePreview] = useState(false);
   const [slugEdited, setSlugEdited] = useState<Record<string, boolean>>(() =>
     establishedSlugs(post.translations)
   );
@@ -186,259 +188,274 @@ function PostEditor({
     }));
   }
 
+  // With the live preview open the editor is pinned to the viewport so the form and the
+  // preview scroll independently; the app shell otherwise grows with the page.
   return (
-    <div className="flex h-full flex-col">
+    <div className={`flex flex-col ${livePreview ? "h-[100dvh]" : "h-full"}`}>
       <TopBar title={saved.translations[settings.defaultLocale]?.title || post.key} subtitle="Post editor" />
-      <form
-        className="flex flex-1 flex-col gap-6 overflow-auto p-6"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!busy) saveMutation.mutate();
-        }}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link
-            className="text-sm text-cyan-300 hover:underline"
-            to={siteSectionPath(siteKey, "blogs")}
-            onClick={(event) => {
-              if (dirty && !window.confirm("Discard unsaved changes?")) event.preventDefault();
-            }}
-          >
-            Back to blogs
-          </Link>
-          <div className="flex items-center gap-3">
-            <span role="status" className="text-xs text-zinc-500">
-              {dirty ? "Unsaved changes" : "Saved"}
-            </span>
-            <button
-              type="submit"
-              className="rounded bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-40"
-              disabled={busy || !dirty}
-            >
-              {saveMutation.isPending ? "Saving…" : "Save post"}
-            </button>
-            <button
-              type="button"
-              className="px-2 py-2 text-sm text-red-400 disabled:opacity-40"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm(`Delete post “${post.key}” and all its translations?`))
-                  deleteMutation.mutate();
+      <div className={`min-h-0 flex-1 ${livePreview ? "grid grid-cols-2 grid-rows-[minmax(0,1fr)]" : "flex"}`}>
+        <form
+          className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!busy) saveMutation.mutate();
+          }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link
+              className="text-sm text-cyan-300 hover:underline"
+              to={siteSectionPath(siteKey, "blogs")}
+              onClick={(event) => {
+                if (dirty && !window.confirm("Discard unsaved changes?")) event.preventDefault();
               }}
             >
-              Delete post
-            </button>
-          </div>
-        </div>
-        {error && (
-          <p role="alert" className="text-sm text-red-400">
-            {blogErrorMessage(error)}
-          </p>
-        )}
-        <fieldset disabled={busy} className="grid max-w-5xl gap-4 sm:grid-cols-2 disabled:opacity-60">
-          <legend className="mb-4 text-lg font-semibold">Shared fields</legend>
-          <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-            Post key
-            <input className={inputClass} value={post.key} readOnly />
-          </label>
-          <BlogSelect
-            label="Category"
-            value={draft.category}
-            onChange={(category) => setDraft({ ...draft, category })}
-            options={categories.map((category) => ({
-              value: category.key,
-              label: category.names[settings.defaultLocale] || category.key,
-            }))}
-            emptyLabel="Choose a category"
-            disabled={busy}
-          />
-          <BlogSelect
-            label="Layout override"
-            value={draft.layout ?? ""}
-            onChange={(layout) => setDraft({ ...draft, layout: layout || null })}
-            options={layouts.map((layout) => ({ value: layout.name, label: layout.name }))}
-            emptyLabel={`Category default${categoryDefaultLayout ? ` (${categoryDefaultLayout})` : ""}`}
-            disabled={busy}
-          />
-          <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-            Published date
-            <input
-              className={inputClass}
-              type="date"
-              value={draft.publishedAt ?? ""}
-              onChange={(event) => setDraft({ ...draft, publishedAt: event.target.value || null })}
-            />
-            <span className="text-xs text-zinc-500">
-              Set automatically on first publish if empty. This date does not schedule publication.
-            </span>
-          </label>
-          <fieldset className="sm:col-span-2">
-            <legend className="mb-2 text-sm text-zinc-400">Tags</legend>
-            <div className="flex flex-wrap gap-4">
-              {tags.length ? (
-                tags.map((tag) => (
-                  <label key={tag.key} className="flex items-center gap-2 text-sm text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={draft.tags.includes(tag.key)}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          tags: event.target.checked
-                            ? [...draft.tags, tag.key]
-                            : draft.tags.filter((key) => key !== tag.key),
-                        })
-                      }
-                    />
-                    {tag.names[settings.defaultLocale] || tag.key}
-                  </label>
-                ))
-              ) : (
-                <p className="text-sm text-zinc-500">No tags configured.</p>
-              )}
-            </div>
-          </fieldset>
-        </fieldset>
-        {locales.length === 0 ? (
-          <p className="text-zinc-400">Configure a language before adding a translation.</p>
-        ) : (
-          <fieldset disabled={busy} className="flex max-w-5xl flex-col gap-4 disabled:opacity-60">
-            <legend className="mb-4 text-lg font-semibold">Translations</legend>
-            <div className="overflow-x-auto">
-              <LocaleTabs
-                siteKey={siteKey}
-                selectedLocale={selectedLocale}
-                onSelectLocale={setSelectedLocale}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-sm text-zinc-400">
-                {selectedLocale.toUpperCase()}: {savedTranslation?.status ?? "Not saved"}
+              Back to blogs
+            </Link>
+            <div className="flex items-center gap-3">
+              <span role="status" className="text-xs text-zinc-500">
+                {dirty ? "Unsaved changes" : "Saved"}
               </span>
               <button
-                type="button"
-                disabled={busy || dirty || !savedTranslation}
-                className="rounded border border-zinc-700 px-3 py-1.5 text-sm text-cyan-300 disabled:opacity-40"
-                onClick={() =>
-                  statusMutation.mutate({
-                    locale: selectedLocale,
-                    published: savedTranslation?.status === "published",
-                  })
-                }
+                type="submit"
+                className="rounded bg-cyan-400 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-40"
+                disabled={busy || !dirty}
               >
-                {savedTranslation?.status === "published" ? "Unpublish" : "Publish"}
+                {saveMutation.isPending ? "Saving…" : "Save post"}
               </button>
-              {previewUrl && (
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-cyan-300 hover:underline"
-                >
-                  Preview on staging
-                </a>
-              )}
-            </div>
-            {(dirty || !savedTranslation) && (
-              <p className="text-xs text-zinc-500">
-                Save the post before changing publication status. Staging previews reflect the latest staging
-                build.
-              </p>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Title
-                <input
-                  className={inputClass}
-                  required={!!saveInput.translations[selectedLocale]}
-                  value={translation.title}
-                  onChange={(event) =>
-                    changeTranslation(
-                      updateTranslationTitle(translation, event.target.value, !!slugEdited[selectedLocale])
-                    )
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Slug
-                <input
-                  className={inputClass}
-                  required={!!saveInput.translations[selectedLocale]}
-                  pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                  title="Lowercase letters, digits and single hyphens"
-                  value={translation.slug}
-                  onChange={(event) => {
-                    setSlugEdited({ ...slugEdited, [selectedLocale]: true });
-                    changeTranslation({ slug: event.target.value });
-                  }}
-                />
-              </label>
-            </div>
-            {savedTranslation?.status === "published" && savedTranslation.slug !== translation.slug && (
-              <p
-                role="alert"
-                className="rounded border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-300"
+              <button
+                type="button"
+                className="px-2 py-2 text-sm text-red-400 disabled:opacity-40"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Delete post “${post.key}” and all its translations?`))
+                    deleteMutation.mutate();
+                }}
               >
-                Changing the slug of this published translation means the old URL will stop working.
-              </p>
-            )}
+                Delete post
+              </button>
+            </div>
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-red-400">
+              {blogErrorMessage(error)}
+            </p>
+          )}
+          <fieldset disabled={busy} className="grid max-w-5xl gap-4 sm:grid-cols-2 disabled:opacity-60">
+            <legend className="mb-4 text-lg font-semibold">Shared fields</legend>
             <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-              Excerpt
-              <textarea
-                className={inputClass}
-                rows={3}
-                value={translation.excerpt}
-                onChange={(event) => changeTranslation({ excerpt: event.target.value })}
-              />
+              Post key
+              <input className={inputClass} value={post.key} readOnly />
             </label>
-            <div
-              role="group"
-              aria-labelledby="blog-body-label"
-              ref={(element) => {
-                if (element) element.inert = busy;
-              }}
-            >
-              <p id="blog-body-label" className="mb-1.5 text-sm text-zinc-400">
-                Body
-              </p>
-              <RichTextEditor
-                key={selectedLocale}
-                value={translation.body}
-                onChange={(body) => changeTranslation({ body })}
-                mediaUpload={mediaUpload}
-              />
-            </div>
-            <div role="group" aria-label="Cover image" className="space-y-1.5">
-              <p className="text-sm text-zinc-400">Cover image</p>
-              <ImagePicker
-                key={selectedLocale}
-                siteKey={siteKey}
-                value={translation.coverImage ?? ""}
-                onChange={(coverImage) => changeTranslation({ coverImage: coverImage || null })}
-                mediaUpload={mediaUpload}
-                allowCustomUrl={false}
-              />
-            </div>
+            <BlogSelect
+              label="Category"
+              value={draft.category}
+              onChange={(category) => setDraft({ ...draft, category })}
+              options={categories.map((category) => ({
+                value: category.key,
+                label: category.names[settings.defaultLocale] || category.key,
+              }))}
+              emptyLabel="Choose a category"
+              disabled={busy}
+            />
+            <BlogSelect
+              label="Layout override"
+              value={draft.layout ?? ""}
+              onChange={(layout) => setDraft({ ...draft, layout: layout || null })}
+              options={layouts.map((layout) => ({ value: layout.name, label: layout.name }))}
+              emptyLabel={`Category default${categoryDefaultLayout ? ` (${categoryDefaultLayout})` : ""}`}
+              disabled={busy}
+            />
             <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-              Meta title
+              Published date
               <input
                 className={inputClass}
-                value={translation.metaTitle}
-                onChange={(event) => changeTranslation({ metaTitle: event.target.value })}
+                type="date"
+                value={draft.publishedAt ?? ""}
+                onChange={(event) => setDraft({ ...draft, publishedAt: event.target.value || null })}
               />
+              <span className="text-xs text-zinc-500">
+                Set automatically on first publish if empty. This date does not schedule publication.
+              </span>
             </label>
-            <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-              Meta description
-              <textarea
-                className={inputClass}
-                rows={3}
-                value={translation.metaDescription}
-                onChange={(event) => changeTranslation({ metaDescription: event.target.value })}
-              />
-            </label>
+            <fieldset className="sm:col-span-2">
+              <legend className="mb-2 text-sm text-zinc-400">Tags</legend>
+              <div className="flex flex-wrap gap-4">
+                {tags.length ? (
+                  tags.map((tag) => (
+                    <label key={tag.key} className="flex items-center gap-2 text-sm text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={draft.tags.includes(tag.key)}
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            tags: event.target.checked
+                              ? [...draft.tags, tag.key]
+                              : draft.tags.filter((key) => key !== tag.key),
+                          })
+                        }
+                      />
+                      {tag.names[settings.defaultLocale] || tag.key}
+                    </label>
+                  ))
+                ) : (
+                  <p className="text-sm text-zinc-500">No tags configured.</p>
+                )}
+              </div>
+            </fieldset>
           </fieldset>
+          {locales.length === 0 ? (
+            <p className="text-zinc-400">Configure a language before adding a translation.</p>
+          ) : (
+            <fieldset disabled={busy} className="flex max-w-5xl flex-col gap-4 disabled:opacity-60">
+              <legend className="mb-4 text-lg font-semibold">Translations</legend>
+              <div className="overflow-x-auto">
+                <LocaleTabs
+                  siteKey={siteKey}
+                  selectedLocale={selectedLocale}
+                  onSelectLocale={setSelectedLocale}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-zinc-400">
+                  {selectedLocale.toUpperCase()}: {savedTranslation?.status ?? "Not saved"}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy || dirty || !savedTranslation}
+                  className="rounded border border-zinc-700 px-3 py-1.5 text-sm text-cyan-300 disabled:opacity-40"
+                  onClick={() =>
+                    statusMutation.mutate({
+                      locale: selectedLocale,
+                      published: savedTranslation?.status === "published",
+                    })
+                  }
+                >
+                  {savedTranslation?.status === "published" ? "Unpublish" : "Publish"}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={livePreview}
+                  className={`rounded border px-3 py-1.5 text-sm ${livePreview ? "border-cyan-600 bg-cyan-950/40 text-cyan-200" : "border-zinc-700 text-cyan-300"}`}
+                  onClick={() => setLivePreview((open) => !open)}
+                >
+                  {livePreview ? "Hide live preview" : "Live preview"}
+                </button>
+                {previewUrl && (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-cyan-300 hover:underline"
+                  >
+                    Preview on staging
+                  </a>
+                )}
+              </div>
+              {(dirty || !savedTranslation) && (
+                <p className="text-xs text-zinc-500">
+                  Save the post before changing publication status. Staging previews reflect the latest staging
+                  build.
+                </p>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
+                  Title
+                  <input
+                    className={inputClass}
+                    required={!!saveInput.translations[selectedLocale]}
+                    value={translation.title}
+                    onChange={(event) =>
+                      changeTranslation(
+                        updateTranslationTitle(translation, event.target.value, !!slugEdited[selectedLocale])
+                      )
+                    }
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
+                  Slug
+                  <input
+                    className={inputClass}
+                    required={!!saveInput.translations[selectedLocale]}
+                    pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                    title="Lowercase letters, digits and single hyphens"
+                    value={translation.slug}
+                    onChange={(event) => {
+                      setSlugEdited({ ...slugEdited, [selectedLocale]: true });
+                      changeTranslation({ slug: event.target.value });
+                    }}
+                  />
+                </label>
+              </div>
+              {savedTranslation?.status === "published" && savedTranslation.slug !== translation.slug && (
+                <p
+                  role="alert"
+                  className="rounded border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-300"
+                >
+                  Changing the slug of this published translation means the old URL will stop working.
+                </p>
+              )}
+              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
+                Excerpt
+                <textarea
+                  className={inputClass}
+                  rows={3}
+                  value={translation.excerpt}
+                  onChange={(event) => changeTranslation({ excerpt: event.target.value })}
+                />
+              </label>
+              <div
+                role="group"
+                aria-labelledby="blog-body-label"
+                ref={(element) => {
+                  if (element) element.inert = busy;
+                }}
+              >
+                <p id="blog-body-label" className="mb-1.5 text-sm text-zinc-400">
+                  Body
+                </p>
+                <RichTextEditor
+                  key={selectedLocale}
+                  value={translation.body}
+                  onChange={(body) => changeTranslation({ body })}
+                  mediaUpload={mediaUpload}
+                />
+              </div>
+              <div role="group" aria-label="Cover image" className="space-y-1.5">
+                <p className="text-sm text-zinc-400">Cover image</p>
+                <ImagePicker
+                  key={selectedLocale}
+                  siteKey={siteKey}
+                  value={translation.coverImage ?? ""}
+                  onChange={(coverImage) => changeTranslation({ coverImage: coverImage || null })}
+                  mediaUpload={mediaUpload}
+                  allowCustomUrl={false}
+                />
+              </div>
+              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
+                Meta title
+                <input
+                  className={inputClass}
+                  value={translation.metaTitle}
+                  onChange={(event) => changeTranslation({ metaTitle: event.target.value })}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
+                Meta description
+                <textarea
+                  className={inputClass}
+                  rows={3}
+                  value={translation.metaDescription}
+                  onChange={(event) => changeTranslation({ metaDescription: event.target.value })}
+                />
+              </label>
+            </fieldset>
+          )}
+        </form>
+        {livePreview && (
+          <BlogPostPreviewPane siteKey={siteKey} postKey={post.key} locale={selectedLocale} post={saveInput} />
         )}
-      </form>
+      </div>
     </div>
   );
 }

@@ -33,6 +33,8 @@ import submissionsRoutes, { registerSiteSubmissionsRoutes } from "./routes/submi
 import mailOAuthCallbackRoutes, { registerSiteNotificationRoutes } from "./routes/notifications.js";
 import cliRoutes, { registerSiteCliRoutes } from "./routes/cli.js";
 import sitesRoutes from "./routes/sites.js";
+import previewRoutes from "./routes/preview.js";
+import { PreviewStore } from "./services/blog/preview-store.js";
 import globalAssetsRoutes, { registerSiteGlobalAssetsRoutes } from "./routes/global-assets.js";
 import {
   globalLayoutTemplateRoutes,
@@ -85,6 +87,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   app.decorate("layoutModuleCache", new LayoutModuleCache(config.COMPILED_LAYOUTS_DIR));
+  const previewStore = new PreviewStore();
+  app.decorate("previewStore", previewStore);
+  app.addHook("onClose", async () => previewStore.close());
 
   // Echo the correlation id on every response (success and error) so the
   // browser can log/show it; the JSON body is never changed.
@@ -165,6 +170,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(registerSiteSubmissionsRoutes, { prefix: "/api/sites" });
   await app.register(registerSiteNotificationRoutes, { prefix: "/api/sites" });
   await app.register(mailOAuthCallbackRoutes, { prefix: "/api/oauth" });
+  await app.register(previewRoutes, { prefix: "/preview" });
 
   // Serve uploaded assets at /assets/:filename
   const assetsDir = resolve(config.ASSETS_DIR);

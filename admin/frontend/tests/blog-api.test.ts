@@ -16,6 +16,7 @@ import {
   deleteBlogPost,
   publishBlogTranslation,
   unpublishBlogTranslation,
+  previewBlogPost,
 } from "../src/api/blog";
 import { fetchLayouts } from "../src/api/layouts";
 import { ApiError, getAccessToken, setAccessToken } from "../src/api/client";
@@ -65,6 +66,7 @@ describe("blog api", () => {
     await deleteBlogPost("a/b", "a b");
     await publishBlogTranslation("a/b", "a b", "de/CH");
     await unpublishBlogTranslation("a/b", "a b", "de/CH");
+    await previewBlogPost("a/b", "a b", "de/CH", post);
     const root = "/api/sites/a%2Fb/blog";
     const call = (path: string, method?: string, body?: unknown) => ({
       url: root + path,
@@ -89,6 +91,7 @@ describe("blog api", () => {
       call("/posts/a%20b", "DELETE"),
       call("/posts/a%20b/translations/de%2FCH/publish", "POST"),
       call("/posts/a%20b/translations/de%2FCH/unpublish", "POST"),
+      call("/posts/a%20b/preview", "POST", { locale: "de/CH", post }),
     ]);
   });
 
