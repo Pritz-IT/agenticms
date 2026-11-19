@@ -24,6 +24,8 @@ test("proxy keeps SPA routes local while forwarding API and uploaded assets", ()
 
   // API proxy unchanged; other SPA routes were never proxied.
   assert.equal(isProxied("/api/auth/refresh"), true, "/api must still be proxied");
+  assert.equal(isProxied("/preview/abc"), true, "blog post previews must be proxied");
+  assert.equal(isProxied("/preview/abc/events"), true, "preview live events must be proxied");
   assert.equal(isProxied("/pages"), false, "/pages SPA route must not be proxied");
   assert.equal(isProxied("/navigation"), false, "/navigation SPA route must not be proxied");
 });

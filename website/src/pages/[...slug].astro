@@ -1,7 +1,7 @@
 ---
 import { getConfig, getDefaultLocale } from "../lib/config";
 import { buildStaticPaths, type StaticPath } from "../lib/static-paths";
-import { routeMeta } from "../lib/route-meta";
+import { documentHeadHtml } from "../lib/document-head";
 import type { Navigation } from "../lib/site-config-types";
 
 type Props = StaticPath["props"];
@@ -37,55 +37,16 @@ if (layoutFilePath) {
   }
 }
 
-const favicon = content["_meta.favicon"];
-const base = (config.settings?.siteUrl ?? "").replace(/\/+$/, "");
-const siteName = config.settings?.name ?? "";
-const { metaTitle, metaDescription, ogImage, canonical } = routeMeta(props, {
-  base, siteName, defaultLocale: getDefaultLocale(), pathname: Astro.url.pathname,
+const headHtml = documentHeadHtml(props, config, {
+  content, defaultLocale: getDefaultLocale(), pathname: Astro.url.pathname,
 });
-
-const isHomepage = props.kind === "page" && props.pageNumber === 1 && props.page.path.replace(/^\//, "") === "";
-const organizationJsonLd =
-  isHomepage && siteName && base
-    ? JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        name: siteName,
-        url: base + "/",
-      })
-    : "";
 
 const filteredNavigation = config.navigation.filter((n: Navigation) => n.locale === locale);
 ---
 
 <html lang={locale}>
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{metaTitle}</title>
-    {config.buildTarget === "staging" && <meta name="robots" content="noindex" />}
-    {metaDescription && <meta name="description" content={metaDescription} />}
-    {favicon && <link rel="shortcut icon" href={favicon} />}
-    {canonical && <link rel="canonical" href={canonical} />}
-    <meta property="og:type" content="website" />
-    {siteName && <meta property="og:site_name" content={siteName} />}
-    {metaTitle && <meta property="og:title" content={metaTitle} />}
-    {metaDescription && <meta property="og:description" content={metaDescription} />}
-    {canonical && <meta property="og:url" content={canonical} />}
-    {metaTitle && <meta name="twitter:title" content={metaTitle} />}
-    {metaDescription && <meta name="twitter:description" content={metaDescription} />}
-    {ogImage ? (
-      <>
-        <meta property="og:image" content={ogImage} />
-        <meta name="twitter:image" content={ogImage} />
-        <meta name="twitter:card" content="summary_large_image" />
-      </>
-    ) : (
-      <meta name="twitter:card" content="summary" />
-    )}
-    {organizationJsonLd && (
-      <script type="application/ld+json" is:inline set:html={organizationJsonLd} />
-    )}
+    <Fragment set:html={headHtml} />
   </head>
   <body>
     {LayoutComponent ? (

@@ -18,4 +18,6 @@ export const proxy: Record<string, { target: string; changeOrigin: boolean }> = 
   // the bare "/assets" SPA route, so reloading the Assets page falls through
   // to Vite's history fallback (index.html) instead of the admin API.
   "^/assets/.+": { target: ADMIN_API_URL, changeOrigin: true },
+  // Blog post previews (HTML, live events, media) are served by the admin API.
+  "^/preview/.+": { target: ADMIN_API_URL, changeOrigin: true },
 };

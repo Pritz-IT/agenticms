@@ -1,13 +1,16 @@
 import type { FastifyInstance } from "fastify";
+import { performance } from "node:perf_hooks";
 import multipart from "@fastify/multipart";
-import { promises as fs } from "node:fs";
 import { requireSite } from "../services/sites.js";
 import { LayoutKindError } from "../services/blog/layout-kind.js";
 import { RouteCollisionError } from "../services/blog/route-lock.js";
 import { listBlogMasterdata, MasterdataError, mutateBlogMasterdata } from "../services/blog/masterdata.js";
 import { sendRouteCollision } from "./route-collision.js";
 import { deletePost, getPost, listPosts, PostError, type PostInput, savePost, setPostTranslationStatus } from "../services/blog/posts.js";
-import { detectImageType, PostMediaError, postMediaDiskPath, storePostMedia } from "../services/blog/post-media.js";
+import { PostMediaError, storePostMedia } from "../services/blog/post-media.js";
+import { sendPostMedia } from "./post-media-response.js";
+import { PreviewRenderError, renderPostPreview } from "../services/blog/preview-renderer.js";
+import { issuePreviewCookie } from "./preview.js";
 
 import { BlogListFilterError, blogListDefaults, parsePageBlogListFilters, resolveBlogList, type BlogList } from "../services/blog/bloglist.js";
 import { loadBlogPostViews } from "../services/blog/views.js";
@@ -61,25 +64,40 @@ export async function registerSiteBlogRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { siteKey: string; "*": string } }>("/:siteKey/blog/media/*", async (request, reply) => {
     const site = await requireSite(app, request.params.siteKey);
-    const diskPath = postMediaDiskPath(site.key, `/media/${request.params["*"]}`);
-    reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
-    reply.header("Cache-Control", "private, no-store");
-    if (!diskPath) return reply.status(404).send({ error: "Post media not found" });
+    return sendPostMedia(request, reply, site.key, `/media/${request.params["*"]}`);
+  });
+
+  app.post<{ Params: { siteKey: string; key: string }; Body: unknown }>("/:siteKey/blog/posts/:key/preview", async (request, reply) => {
+    const { siteKey, key } = request.params;
+    const body = request.body as { locale?: unknown; post?: unknown } | null;
+    const locale = typeof body?.locale === "string" ? body.locale : "";
+    const context = { op: "blog.preview.render", siteKey, postKey: key, locale };
+    request.log.info(context, "blog.preview.render requested");
+    const post = body?.post as PostInput | undefined;
+    if (!locale || typeof post !== "object" || post === null || post.key !== key) {
+      request.log.warn(context, "blog.preview.render rejected — body must be { locale, post } with post.key matching the URL");
+      return reply.status(400).send({ error: "Body must be { locale, post } and post.key must match the URL" });
+    }
+    const site = await requireSite(app, siteKey);
+    const userId = request.user!.id;
+    const snapshot = app.previewStore.open({ userId, siteKey: site.key, postKey: key });
+    const started = performance.now();
     try {
-      const buffer = await fs.readFile(diskPath);
-      const type = detectImageType(buffer);
-      if (!type) {
-        request.log.warn({ op: "blog.media.read", siteKey: site.key }, "blog.media.read rejected — unsupported stored image");
-        return reply.status(404).send({ error: "Post media not found" });
-      }
-      return reply.type(`image/${type}`).send(buffer);
+      const html = await renderPostPreview(app.prisma, site, post, locale, `/preview/${snapshot.token}/media`, request.log);
+      const version = app.previewStore.publish(snapshot.token, html);
+      issuePreviewCookie(reply, userId);
+      request.log.info({ ...context, version, ms: Math.round(performance.now() - started) }, "blog.preview.render completed");
+      return reply.send({ url: `/preview/${snapshot.token}`, version, html });
     } catch (error) {
-      if (["ENOENT", "ENOTDIR", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
-        request.log.warn({ op: "blog.media.read", siteKey: site.key, err: error }, "blog.media.read missing");
-        return reply.status(404).send({ error: "Post media not found" });
+      if (error instanceof PostError || error instanceof LayoutKindError) {
+        request.log.warn({ ...context, err: error }, "blog.preview.render rejected");
+        return reply.status(error instanceof PostError ? error.statusCode : 400).send({ error: error.message });
       }
-      request.log.error({ op: "blog.media.read", siteKey: site.key, err: error }, "blog.media.read failed");
+      if (error instanceof PreviewRenderError) {
+        request.log.error({ ...context, err: error }, "blog.preview.render failed — layout did not compile or render");
+        return reply.status(422).send({ error: error.message, errors: error.errors });
+      }
+      request.log.error({ ...context, err: error }, "blog.preview.render failed");
       throw error;
     }
   });

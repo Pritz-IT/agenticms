@@ -20,6 +20,17 @@ export interface BlogPostView extends BlogPostSummary {
   translations: { locale: string; url: string }[];
 }
 
+type NamedRecord = { key: string; names: { locale: string; name: string }[] };
+
+// Category/tag display name: the locale's name, else the default locale's, else the key.
+export function localizedName(record: NamedRecord, locale: string, defaultLocale: string) {
+  return {
+    key: record.key,
+    name: record.names.find((entry) => entry.locale === locale)?.name
+      ?? record.names.find((entry) => entry.locale === defaultLocale)?.name ?? record.key,
+  };
+}
+
 export async function loadBlogPostViews(prisma: Prisma.TransactionClient, siteId: string, target: "staging" | "production"): Promise<BlogPostView[]> {
   const site = await prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { defaultLocale: true } });
   const posts = await prisma.blogPost.findMany({
@@ -31,11 +42,7 @@ export async function loadBlogPostViews(prisma: Prisma.TransactionClient, siteId
     },
     orderBy: { key: "asc" },
   });
-  const named = (record: { key: string; names: { locale: string; name: string }[] }, locale: string) => ({
-    key: record.key,
-    name: record.names.find((entry) => entry.locale === locale)?.name
-      ?? record.names.find((entry) => entry.locale === site.defaultLocale)?.name ?? record.key,
-  });
+  const named = (record: NamedRecord, locale: string) => localizedName(record, locale, site.defaultLocale);
   return posts.flatMap((post) => {
     const translations = post.translations.map(({ locale, slug }) => ({ locale, url: postUrlPath(post.category.page.path, locale, site.defaultLocale, slug) }));
     return post.translations.map(({ locale, slug, title, excerpt, coverImage, body, metaTitle, metaDescription }) => ({

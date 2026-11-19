@@ -80,6 +80,17 @@ export async function uploadBlogPostMedia(siteKey: string, key: string, file: Fi
   return result.url;
 }
 
+export interface BlogPostPreview {
+  url: string;
+  version: number;
+  html: string;
+}
+
+/** Renders the unsaved post for one locale; the response also sets the preview cookie for `url`. */
+export function previewBlogPost(siteKey: string, key: string, locale: string, post: BlogPostInput): Promise<BlogPostPreview> {
+  return api(`${postPath(siteKey, key)}/preview`, { method: "POST", body: JSON.stringify({ locale, post }) });
+}
+
 export function publishBlogTranslation(siteKey: string, key: string, locale: string): Promise<BlogPost> {
   return api(`${postPath(siteKey, key)}/translations/${encodeURIComponent(locale)}/publish`, {
     method: "POST",
